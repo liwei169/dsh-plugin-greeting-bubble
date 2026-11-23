@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Greeting bubble",
+    "description": "Shows a “你好，腾盛” speech bubble near the bottom-right corner of the window, just above the message composer, after the page loads. Click × to dismiss it; it appears again on the next page load. The greeting stays Chinese in every interface language; only the close-button label is localized. The bubble is click-through except for the close button, makes no network requests, collects no data, and changes nothing else in the app. Disable or remove the bundle under Plugins to remove it.",
+    "detail": "docs/DETAIL.md"
+  }
+}

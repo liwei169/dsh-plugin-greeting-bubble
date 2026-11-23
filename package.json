@@ -1,0 +1,50 @@
+{
+  "name": "dsh-plugin-greeting-bubble",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shows a “你好，腾盛” speech bubble in the bottom-right corner of the DeepSeek Harness Web GUI.",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "web-ui",
+    "greeting"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liwei169/dsh-plugin-greeting-bubble.git"
+  },
+  "homepage": "https://github.com/liwei169/dsh-plugin-greeting-bubble#readme",
+  "bugs": {
+    "url": "https://github.com/liwei169/dsh-plugin-greeting-bubble/issues"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "docs",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout"
+      ]
+    }
+  }
+}

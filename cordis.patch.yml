@@ -1,0 +1,8 @@
+# Registers the browser-only greeting-bubble plugin row.
+#
+# `name` is this package's own name (it resolves from the profile that installs
+# the bundle). `id` is the unique Loader entry id shown in the plugin inventory
+# and used by profile patches to enable or disable the row.
+- insert:
+    - id: greeting-bubble
+      name: dsh-plugin-greeting-bubble

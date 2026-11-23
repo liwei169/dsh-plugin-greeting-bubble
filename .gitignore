@@ -1,0 +1,16 @@
+# Dependencies and build output
+node_modules/
+dist/
+*.tgz
+
+# Editor and OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs and local scratch files
+*.log
+npm-debug.log*
+.venv/

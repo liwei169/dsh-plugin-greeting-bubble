@@ -1,0 +1,9 @@
+# Keep text files LF in the repository even on Windows checkouts, so diffs and
+# the packaged bundle stay stable across machines.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
