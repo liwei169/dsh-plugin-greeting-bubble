@@ -36,9 +36,19 @@
 
 ## 安装
 
-三种方式任选其一。都需要本机可用的 `pnpm`（DSH 插件安装自带）与 `git`（GitHub 直装时需要）。
+四种方式任选其一。都需要本机可用的 `pnpm`（DSH 插件安装自带）；GitHub 安装还需要能访问 `github.com` 的 `git`。
 
-### 方式一：从 GitHub 直接安装（推荐）
+### 方式一：从 npm 安装（最稳，推荐）
+
+插件发布到 npm 后，在 **插件 → 添加插件** 中直接填包名：
+
+```
+dsh-plugin-greeting-bubble
+```
+
+安装走 npm 源（国内可用镜像兜底），不经过 GitHub 的网络检查；发布新版本后还能在插件页直接“更新”。
+
+### 方式二：从 GitHub 直接安装
 
 1. 打开 DSH Web 界面，左侧边栏进入 **插件**。
 2. 点右上角 **添加插件**。
@@ -51,7 +61,7 @@
    也支持 pnpm 的简写：`github:liwei169/dsh-plugin-greeting-bubble`。
 4. 点 **安装**，等待下载完成。安装成功后会自动启用，气泡随即出现（页面已打开时通常无需刷新；若没出现，刷新一次）。
 
-### 方式二：本地目录安装
+### 方式三：本地目录安装
 
 ```powershell
 git clone https://github.com/liwei169/dsh-plugin-greeting-bubble.git
@@ -59,9 +69,9 @@ git clone https://github.com/liwei169/dsh-plugin-greeting-bubble.git
 
 然后在 **插件 → 添加插件** 中填入克隆下来的本地目录路径（例如 `D:\dsh-plugin-greeting-bubble`）并安装。
 
-> 本地目录安装是软链接（`link:`）：移动或删除该目录，插件会失效。长期使用建议用方式一。
+> 本地目录安装是软链接（`link:`）：移动或删除该目录，插件会失效。长期使用建议用方式一或方式二。
 
-### 方式三：让 agent 安装
+### 方式四：让 agent 安装
 
 在 DSH 对话里说“安装 D:\dsh-plugin-greeting-bubble 这个插件”，agent 会调用 `plugin_manager` 的 `install_bundle` 完成同样的步骤。
 

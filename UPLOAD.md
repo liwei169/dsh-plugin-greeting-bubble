@@ -187,21 +187,56 @@ git push origin v1.0.0
 
 ---
 
-## 8. 可选：发布到 npm
+## 8. 可选：发布到 npm（国内安装最稳）
 
-如果希望别人在插件页直接填包名（`dsh-plugin-greeting-bubble`）安装：
+发布后别人在插件页直接填包名 `dsh-plugin-greeting-bubble` 即可安装，走 npm 源，不经过 GitHub 预检。
 
-1. 把 `package.json` 里的 `"private": true` 删掉；
-2. 登录并发布：
+### 8.1 准备 npm 访问令牌
 
-   ```powershell
-   npm login
-   npm publish
-   ```
+1. 登录 <https://www.npmjs.com>，右上角头像 → **Access Tokens** → **Generate New Token**；
+2. 选 **Classic Token → Automation**（或 Granular Token 并给 `dsh-plugin-greeting-bubble` 读写权限）；
+3. 复制生成的令牌（`npm_...`）。
 
-3. 检查 npm 页面上的文件列表：应包含 `index.js`、`client.js`、`cordis.patch.yml`、`locale/*.json`、`docs`、`icon.svg`（由 `files` 字段控制）。
+### 8.2 写入本机 npm 配置（不要提交进仓库）
 
-> 发布 npm 后，仍然建议保留 GitHub Release，方便查看源码与变更。
+新建或编辑 `C:\Users\<你的用户名>\.npmrc`，加入：
+
+```
+registry=https://registry.npmjs.org/
+//registry.npmjs.org/:_authToken=npm_你的令牌
+```
+
+### 8.3 用 DSH 自带的 Node + pnpm 发布（无需另装 Node）
+
+```powershell
+cd D:\插件实现
+
+$node = 'C:\Users\81292\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe'
+$pnpm = 'C:\Users\81292\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin\pnpm.mjs'
+
+# 先干跑，确认要上传的文件清单
+& $node $pnpm publish --dry-run --no-git-checks --access public
+
+# 正式发布
+& $node $pnpm publish --no-git-checks --access public
+```
+
+> `--no-git-checks` 跳过 pnpm 对 git 工作区/分支的检查；发布用的文件由 `package.json` 的 `files` 字段决定。
+> 如果本机装了 Node.js，也可以直接 `npm publish --access public`。
+
+### 8.4 验证
+
+```powershell
+& $node $pnpm view dsh-plugin-greeting-bubble version
+```
+
+看到 `1.0.0` 即发布成功；npm 页面地址：<https://www.npmjs.com/package/dsh-plugin-greeting-bubble>
+
+### 8.5 使用者怎么装
+
+插件页 → **添加插件** → 填 `dsh-plugin-greeting-bubble` → 安装。之后新版本发布会出现在插件页的“更新”里。
+
+> 以后发新版：改代码 → `package.json` 的 `version` 加一 → 重新发布 → 用户在插件页点更新。
 
 ---
 
