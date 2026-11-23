@@ -167,11 +167,11 @@ package.json
 1. **渲染位置选 `shell.overlay`**：这是 `@deepseek-ai/dsh-client-ui-layout` 声明的整帧浮层（`position: absolute; inset: 0; z-index: 20; pointer-events: none`），位于所有列之上、列滚动容器之外，适合徽标、Toast、状态胶囊这类覆盖层。注册时用一个新 `id`（`greeting-bubble`）就是**追加**一条，不会替换自带的条目。
 2. **两层点击穿透**：浮层本身 `pointer-events: none`，但它的每个直接子元素默认 `pointer-events: auto`。插件根节点显式设为 `none`；气泡卡片同样设为 `none`，只把 × 按钮设回 `auto`。这样即使气泡在窄窗口下与输入框有少量几何重叠，点击也会落到下面的真实控件上，不会“抢”发送或输入。
 3. **高度避让**：气泡距底 `84px`，位于输入卡发送按钮（34px 圆钮）之上；发送按钮始终露出来，不被问候语遮挡。
-3. **生命周期归 Cordis 管**：所有注册都放在 `ctx.effect` / `ctx.slots.inject` 里。`slots.inject` 会在槽声明存在时注册、声明消失时注销；插件停用或卸载时整个 fiber 被销毁，气泡和字典一起被清理，不需要手写 DOM 清理。
-4. **工厂无副作用**：`client.js` 顶层只调用 `__ModuleLoader__.load`，真正的注册发生在 `apply()`；模块体不碰 DOM、不开定时器。
-5. **样式走主题变量**：气泡用 `--dsw-alias-bg-layer-3`、`--dsw-alias-border-l3`、`--dsw-alias-label-primary`、`--dsw-alias-interactive-bg-hover` 等 token，亮/暗主题自动切换；组件内的 `<style>` 随组件卸载一起移除。
-6. **文案走 locale**：`locale: NS` 让框架把 `t` 注入组件，切换界面语言时文案实时更新，无需重载。
-7. **Host 端为空**：`index.js` 只导出 `export function apply() {}`。插件不注册工具、不发请求、不写会话日志，因此对模型和会话完全透明。
+4. **生命周期归 Cordis 管**：所有注册都放在 `ctx.effect` / `ctx.slots.inject` 里。`slots.inject` 会在槽声明存在时注册、声明消失时注销；插件停用或卸载时整个 fiber 被销毁，气泡和字典一起被清理，不需要手写 DOM 清理。
+5. **工厂无副作用**：`client.js` 顶层只调用 `__ModuleLoader__.load`，真正的注册发生在 `apply()`；模块体不碰 DOM、不开定时器。
+6. **样式走主题变量**：气泡用 `--dsw-alias-bg-layer-3`、`--dsw-alias-border-l3`、`--dsw-alias-label-primary`、`--dsw-alias-interactive-bg-hover` 等 token，亮/暗主题自动切换；组件内的 `<style>` 随组件卸载一起移除。
+7. **文案走 locale**：`locale: NS` 让框架把 `t` 注入组件，切换界面语言时文案实时更新，无需重载。
+8. **Host 端为空**：`index.js` 只导出 `export function apply() {}`。插件不注册工具、不发请求、不写会话日志，因此对模型和会话完全透明。
 
 ## 文件结构
 

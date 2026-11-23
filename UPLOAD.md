@@ -3,28 +3,28 @@
 这份文件面向仓库维护者。普通用户只需要看 `README.md` 的「安装」一节。
 
 下面所有命令都在 **PowerShell** 里执行，工作目录是插件根目录 `D:\插件实现`（换成你的实际路径）。
-把 `liwei169` 换成真实的 GitHub 用户名（全小写，例如 `tengsheng`）。
+文中用本仓库的地址 `liwei169/dsh-plugin-greeting-bubble` 举例；如果换了用户名或仓库名，把地址一起替换。
 
 ---
 
-## 0. 上传前：替换占位符
+## 0. 上传前：确认仓库地址
 
-仓库里有两类占位符，上传前必须替换，否则别人点链接会 404：
+`package.json` 和 `README.md` 里写死了仓库地址，上传前确认它们指向你自己的仓库（否则别人点链接会 404）：
 
-| 文件 | 需要替换的内容 |
+| 文件 | 位置 |
 | --- | --- |
-| `package.json` | `repository.url`、`homepage`、`bugs.url` 里的 `liwei169` |
-| `README.md` | 安装方式一、方式二里的 `liwei169` |
+| `package.json` | `repository.url`、`homepage`、`bugs.url` |
+| `README.md` | 「安装」一节的 GitHub 地址与 `git clone` 命令 |
 
-快速检查还有没有漏掉的：
+快速检查：
 
 ```powershell
-Select-String -Path package.json,README.md -Pattern 'liwei169'
+Select-String -Path package.json,README.md -Pattern 'github.com/'
 ```
 
-没有输出就说明替换完了。
+确认每处都指向你的仓库即可。
 
-> 如果暂时不确定仓库名：本说明统一使用 `dsh-plugin-greeting-bubble`，与 `package.json` 的 `name` 保持一致最省事（DSH 用包名定位插件）。
+> 仓库名建议与 `package.json` 的 `name` 保持一致（`dsh-plugin-greeting-bubble`），DSH 用包名定位插件，最省事。
 
 ---
 
@@ -221,7 +221,7 @@ git push origin v1.0.0
 
 ## 10. 发布前自查清单
 
-- [ ] `liwei169` 已全部替换；
+- [ ] `package.json` 与 `README.md` 里的仓库地址已指向你的仓库；
 - [ ] `node --check index.js`、`node --check client.js` 通过；
 - [ ] `node test/smoke.mjs` 输出 `ok: ...`；
 - [ ] `package.json` 的 `name` = `dsh-plugin-greeting-bubble`，`version` 已更新；
