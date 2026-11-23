@@ -30,9 +30,10 @@
 
 - 页面加载约 0.35 秒后，右下角（距右 20px、距底 84px，即输入框发送按钮上方）淡入气泡：👋 你好，腾盛 ×
 - 点气泡右侧的 **×** 关闭；关闭只对当前页面生效，**刷新页面后会再次出现**。
-- 位置刻意抬高到输入框上方：不会盖住发送按钮；气泡本体点击穿透，只有 × 可点，因此也不会拦住下面的输入框或右侧按钮。
-- 在「插件」「设置」等页面同样显示（浮层属于整个应用框架），但**不会拦截点击**：整颗气泡只有 × 接收点击，其余区域点击照常落到下面的界面。
-- 进入动画在系统开启“减少动态效果”时自动关闭；窄窗口下气泡最大宽度自动收缩，不会顶出屏幕。
+- **按住气泡可以拖动**：光标变成抓手，拖到任意位置松手即可；位置会记在浏览器里，下次打开（包括刷新）仍在原处。
+- 默认位置刻意抬到输入框上方，不会盖住发送按钮；拖动后由你决定位置。气泡本体需要接收拖动事件，所以它所在的小块区域会接住点击，其余区域不受影响。
+- 在「插件」「设置」等页面同样显示（浮层属于整个应用框架）。
+- 进入动画在系统开启“减少动态效果”时自动关闭；窄窗口下气泡最大宽度自动收缩，不会被拖出屏幕（拖动时自动限制在可视区内）。
 
 ## 安装
 
@@ -85,8 +86,9 @@ git clone https://github.com/liwei169/dsh-plugin-greeting-bubble.git
 | 操作 | 结果 |
 | --- | --- |
 | 页面加载 | 气泡出现（每个页面视图一次） |
+| **按住气泡拖动** | 气泡跟着指针移动，松手后记住位置 |
 | 点 ×（或聚焦后按 Enter / Space） | 本次页面隐藏气泡 |
-| 刷新页面 | 气泡再次出现 |
+| 刷新页面 | 气泡再次出现，位置保持上次拖到的位置 |
 | 插件页关闭该包的开关 | 气泡立即消失（HMR 生效时无需刷新） |
 | 插件页卸载该包 | 彻底移除，不再出现 |
 
@@ -105,9 +107,9 @@ en: { greeting: '你好，腾盛', dismiss: 'Dismiss greeting' },
 
 问候语刻意在两种语言下保持一致（它是这个插件固定的“签名语”），只有关闭按钮的提示文字跟随界面语言。想让英文界面显示英文问候，把 `en.greeting` 改成 `Hello, Tengsheng` 即可。
 
-### 2. 改位置 / 间距
+### 2. 改默认位置 / 拖动记忆
 
-`client.js` 中的 `.dsh-greeting-bubble`：
+默认位置在 `client.js` 的 `.dsh-greeting-bubble` 里：
 
 ```css
 right: calc(20px + env(safe-area-inset-right, 0px));
@@ -115,6 +117,14 @@ bottom: calc(84px + env(safe-area-inset-bottom, 0px)); /* 输入框发送按钮�
 ```
 
 改成 `left` / `top` 就能换角；把 `20px` 调大即离边更远。`bottom` 不要低于 `84px`：DSH 的发送按钮在输入卡右下角，贴近底边会在窄窗口下盖住它。
+
+拖动后的位置保存在 localStorage 的 `dsh-greeting-bubble:position:v1` 键里。想恢复默认位置，在浏览器控制台执行：
+
+```js
+localStorage.removeItem('dsh-greeting-bubble:position:v1')
+```
+
+然后刷新页面即可。
 
 ### 3. 改视觉
 
@@ -175,13 +185,14 @@ package.json
 几个关键设计点：
 
 1. **渲染位置选 `shell.overlay`**：这是 `@deepseek-ai/dsh-client-ui-layout` 声明的整帧浮层（`position: absolute; inset: 0; z-index: 20; pointer-events: none`），位于所有列之上、列滚动容器之外，适合徽标、Toast、状态胶囊这类覆盖层。注册时用一个新 `id`（`greeting-bubble`）就是**追加**一条，不会替换自带的条目。
-2. **两层点击穿透**：浮层本身 `pointer-events: none`，但它的每个直接子元素默认 `pointer-events: auto`。插件根节点显式设为 `none`；气泡卡片同样设为 `none`，只把 × 按钮设回 `auto`。这样即使气泡在窄窗口下与输入框有少量几何重叠，点击也会落到下面的真实控件上，不会“抢”发送或输入。
-3. **高度避让**：气泡距底 `84px`，位于输入卡发送按钮（34px 圆钮）之上；发送按钮始终露出来，不被问候语遮挡。
-4. **生命周期归 Cordis 管**：所有注册都放在 `ctx.effect` / `ctx.slots.inject` 里。`slots.inject` 会在槽声明存在时注册、声明消失时注销；插件停用或卸载时整个 fiber 被销毁，气泡和字典一起被清理，不需要手写 DOM 清理。
-5. **工厂无副作用**：`client.js` 顶层只调用 `__ModuleLoader__.load`，真正的注册发生在 `apply()`；模块体不碰 DOM、不开定时器。
-6. **样式走主题变量**：气泡用 `--dsw-alias-bg-layer-3`、`--dsw-alias-border-l3`、`--dsw-alias-label-primary`、`--dsw-alias-interactive-bg-hover` 等 token，亮/暗主题自动切换；组件内的 `<style>` 随组件卸载一起移除。
-7. **文案走 locale**：`locale: NS` 让框架把 `t` 注入组件，切换界面语言时文案实时更新，无需重载。
-8. **Host 端为空**：`index.js` 只导出 `export function apply() {}`。插件不注册工具、不发请求、不写会话日志，因此对模型和会话完全透明。
+2. **浮层穿透、气泡可交互**：浮层本身 `pointer-events: none`，它的直接子元素默认 `auto`。插件根节点设为 `none`；气泡卡片设回 `auto`——它必须接收指针事件才能拖动。因此只有气泡这一块会接住点击，浮层的其余区域完全穿透。
+3. **拖动实现**：`pointerdown` 时记录起始坐标与气泡矩形并 `setPointerCapture`，`pointermove` 按位移计算新坐标、限制在可视区内，`pointerup` 保存到 `localStorage` 并释放捕获；窗口缩放时也会把气泡夹回屏幕内（`ResizeObserver` 不需要，监听 `resize` 即可）。
+4. **高度避让**：默认距底 `84px`，位于输入卡发送按钮（34px 圆钮）之上；发送按钮始终露出来，不被问候语遮挡。拖动后以用户选择为准。
+5. **生命周期归 Cordis 管**：所有注册都放在 `ctx.effect` / `ctx.slots.inject` 里。`slots.inject` 会在槽声明存在时注册、声明消失时注销；插件停用或卸载时整个 fiber 被销毁，气泡和字典一起被清理，不需要手写 DOM 清理。
+6. **工厂无副作用**：`client.js` 顶层只调用 `__ModuleLoader__.load`，真正的注册发生在 `apply()`；模块体不碰 DOM、不开定时器。
+7. **样式走主题变量**：气泡用 `--dsw-alias-bg-layer-3`、`--dsw-alias-border-l3`、`--dsw-alias-label-primary`、`--dsw-alias-interactive-bg-hover` 等 token，亮/暗主题自动切换；组件内的 `<style>` 随组件卸载一起移除。
+8. **文案走 locale**：`locale: NS` 让框架把 `t` 注入组件，切换界面语言时文案实时更新，无需重载。
+9. **Host 端为空**：`index.js` 只导出 `export function apply() {}`。插件不注册工具、不发请求、不写会话日志，因此对模型和会话完全透明。
 
 ## 文件结构
 
@@ -237,16 +248,17 @@ node test/smoke.mjs
 - 面向 **DSH Web 客户端**（`dsh.client.platform: web`）：桌面版窗口和浏览器版都适用；CLI / headless 模式没有界面，插件不产生任何效果。
 - 依赖 `shell.overlay` 槽；更老的 DSH 版本没有该槽时，插件会安静地不显示，不会报错。
 - 每次页面加载都会出现一次，不记忆关闭状态（如需记忆见[自定义](#自定义)）。
-- 浮层位于整帧之上：气泡距右下角 20px、位于输入框上方（84px），窄窗口下可能与输入卡右上区域有少量视觉重叠，但气泡本身点击穿透，不会挡住输入、发送或页面按钮；点 × 即可关闭。
+- 浮层位于整帧之上：气泡默认在右下角、输入框上方（距右 20px、距底 84px），可以拖到任意位置；拖动后位置记在 localStorage 里（`dsh-greeting-bubble:position:v1`）。气泡本体需要接收拖动事件，所以它所在的那一小块会接住点击，其余区域不受影响。
 - 问候语固定为中文，在任何界面语言下都不翻译；只有关闭按钮的提示文字跟随语言。
 - 插件只在本地运行，不访问网络。
 
 ## English
 
-A tiny DeepSeek Harness Web UI plugin that shows a “你好，腾盛” speech bubble in the bottom-right corner after the page loads. Click × to dismiss it; it returns on the next page load.
+A tiny DeepSeek Harness Web UI plugin that shows a “你好，腾盛” speech bubble near the bottom-right corner after the page loads. Click × to dismiss it; it returns on the next page load. The bubble can be dragged anywhere, and its position is remembered in localStorage.
 
-- Install: **Plugins → Add plugin** → `https://github.com/liwei169/dsh-plugin-greeting-bubble` (or `github:liwei169/dsh-plugin-greeting-bubble`).
+- Install: **Plugins → Add plugin** → `dsh-plugin-greeting-bubble` (npm), or `https://github.com/liwei169/dsh-plugin-greeting-bubble` (GitHub).
 - It registers one entry into the frame-wide `shell.overlay` slot, uses `--dsw-alias-*` theme tokens, localizes its close label, and keeps every registration inside `ctx.effect` / `ctx.slots.inject` so disabling the bundle removes the bubble again.
+- Dragging uses pointer capture, clamps to the viewport, and saves the dropped position under `dsh-greeting-bubble:position:v1`.
 - No network access, no data collection, no model-facing behavior.
 
 Tested with DeepSeek Harness 0.2.2-rc.5.

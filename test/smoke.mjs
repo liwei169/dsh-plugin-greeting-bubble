@@ -19,7 +19,9 @@ const createElement = (type, props, ...children) => ({ type, props: props ?? {},
 
 const ReactStub = {
   createElement,
-  useState: (initial) => [initial, () => {}],
+  useState: (initial) => [typeof initial === 'function' ? initial() : initial, () => {}],
+  useRef: () => ({ current: null }),
+  useEffect: () => {},
 };
 
 let definition;
@@ -95,6 +97,9 @@ const text = bubble.children.find((child) => child && child.type === 'span' && c
 assert(text && text.children[0] === '你好，腾盛', 'rendered greeting text');
 assert(text.props.role === 'status', 'greeting text is the status region');
 assert(text.props.lang === 'zh-CN', 'greeting text declares its language');
+assert(typeof bubble.props.onPointerDown === 'function', 'bubble can start a drag');
+assert(typeof bubble.props.onPointerMove === 'function', 'bubble follows the pointer');
+assert(typeof bubble.props.onPointerUp === 'function', 'bubble finishes a drag');
 const close = bubble.children.find((child) => child && child.type === 'button');
 assert(close && close.props['aria-label'] === '关闭问候气泡', 'close button label');
 
