@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Greeting bubble",
-    "description": "Shows a “你好，腾盛” speech bubble near the bottom-right corner of the window, just above the message composer, after the page loads. Drag the bubble anywhere; its position is remembered for the next visit. Click × to dismiss it; it appears again on the next page load. The greeting stays Chinese in every interface language; only the close-button label is localized. The plugin makes no network requests, collects no data, and changes nothing else in the app. Disable or remove the bundle under Plugins to remove it.",
+    "description": "Shows a “你好，腾盛” speech bubble near the bottom-right corner of the window, just above the message composer, plus the signed-in DeepSeek account balance (top-up and bonus wallets) refreshed every 60 seconds; click the balance line to refresh it immediately. Drag the bubble anywhere; its position is remembered for the next visit. Click × to dismiss it; it appears again on the next page load. The greeting stays Chinese in every interface language; only control labels are localized. Balance is read through the DSH account service, so the browser never sees the account token; a signed-out or failed read shows “Balance --”. The plugin makes no network requests of its own and collects no data. Disable or remove the bundle under Plugins to remove it.",
     "detail": "docs/DETAIL.md"
   }
 }

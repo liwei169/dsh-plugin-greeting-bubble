@@ -29,6 +29,8 @@
 ## 效果
 
 - 页面加载约 0.35 秒后，右下角（距右 20px、距底 84px，即输入框发送按钮上方）淡入气泡：👋 你好，腾盛 ×
+- **第二行显示账号余额**：`余额 ¥12.34（赠送 ¥3.00）`，来自当前登录的 DeepSeek 账号（充值 + 赠送钱包）；每 60 秒刷新一次，**点余额这一行可立即刷新**。
+- 未登录、账号服务不可用或请求失败时显示 `余额 --`，不影响气泡的其他功能。
 - 点气泡右侧的 **×** 关闭；关闭只对当前页面生效，**刷新页面后会再次出现**。
 - **按住气泡可以拖动**：光标变成抓手，拖到任意位置松手即可；位置会记在浏览器里，下次打开（包括刷新）仍在原处。
 - 默认位置刻意抬到输入框上方，不会盖住发送按钮；拖动后由你决定位置。气泡本体需要接收拖动事件，所以它所在的小块区域会接住点击，其余区域不受影响。
@@ -85,8 +87,9 @@ git clone https://github.com/liwei169/dsh-plugin-greeting-bubble.git
 
 | 操作 | 结果 |
 | --- | --- |
-| 页面加载 | 气泡出现（每个页面视图一次） |
+| 页面加载 | 气泡出现（每个页面视图一次），并读取一次余额 |
 | **按住气泡拖动** | 气泡跟着指针移动，松手后记住位置 |
+| **点余额那一行** | 立即刷新余额（不用等 60 秒） |
 | 点 ×（或聚焦后按 Enter / Space） | 本次页面隐藏气泡 |
 | 刷新页面 | 气泡再次出现，位置保持上次拖到的位置 |
 | 插件页关闭该包的开关 | 气泡立即消失（HMR 生效时无需刷新） |
@@ -132,7 +135,21 @@ localStorage.removeItem('dsh-greeting-bubble:position:v1')
 - 底/字色：`--dsw-alias-bg-layer-3`、`--dsw-alias-label-primary`，自动跟随亮/暗主题；
 - 尺寸与字号：`.dsh-greeting-bubble` 的 `font-size`、`gap`、`padding`。
 
-### 4. 改成“只问候一次”（可选）
+### 4. 改余额刷新频率
+
+`client.js` 顶部：
+
+```js
+const BALANCE_REFRESH_MS = 60_000;       // 正常刷新间隔
+const BALANCE_MAX_BACKOFF_MS = 300_000;  // 连续失败后的最大退避
+```
+
+- 只在页面可见时刷新，切到后台暂停；
+- 失败会退避（60s → 120s → 240s → 300s），成功后恢复 60s；
+- 点击余额那一行会立即刷新并重置退避；
+- 不建议改到 30 秒以下：余额接口是账号接口，不适合高频轮询。
+
+### 5. 改成“只问候一次”（可选）
 
 默认每次页面加载都会出现。如果希望用户关闭后永久不再出现，在组件里加一个 `localStorage` 开关，例如：
 
@@ -153,7 +170,7 @@ function GreetingBubble({ t }) {
 
 清除 `localStorage` 里这个键即可让问候重新出现。
 
-### 5. 改图标、名称、描述
+### 6. 改图标、名称、描述
 
 - 图标：`icon.svg`（36×36，纯几何、无文字）；
 - 插件页显示的名称与说明：`locale/zh.json`、`locale/en.json` 的 `meta.title` / `meta.description`；
@@ -193,6 +210,7 @@ package.json
 7. **样式走主题变量**：气泡用 `--dsw-alias-bg-layer-3`、`--dsw-alias-border-l3`、`--dsw-alias-label-primary`、`--dsw-alias-interactive-bg-hover` 等 token，亮/暗主题自动切换；组件内的 `<style>` 随组件卸载一起移除。
 8. **文案走 locale**：`locale: NS` 让框架把 `t` 注入组件，切换界面语言时文案实时更新，无需重载。
 9. **Host 端为空**：`index.js` 只导出 `export function apply() {}`。插件不注册工具、不发请求、不写会话日志，因此对模型和会话完全透明。
+10. **余额走账号 Remote**：`ctx.remote.account.getBalance(...)` 由 Host 用本地登录凭据请求 Platform，浏览器只拿到脱敏后的钱包金额；账号令牌永远不进浏览器。未登录（返回 null）或请求失败时显示 `--`。
 
 ## 文件结构
 
@@ -249,17 +267,20 @@ node test/smoke.mjs
 - 依赖 `shell.overlay` 槽；更老的 DSH 版本没有该槽时，插件会安静地不显示，不会报错。
 - 每次页面加载都会出现一次，不记忆关闭状态（如需记忆见[自定义](#自定义)）。
 - 浮层位于整帧之上：气泡默认在右下角、输入框上方（距右 20px、距底 84px），可以拖到任意位置；拖动后位置记在 localStorage 里（`dsh-greeting-bubble:position:v1`）。气泡本体需要接收拖动事件，所以它所在的那一小块会接住点击，其余区域不受影响。
-- 问候语固定为中文，在任何界面语言下都不翻译；只有关闭按钮的提示文字跟随语言。
-- 插件只在本地运行，不访问网络。
+- 余额需要当前**已登录 DeepSeek 账号**；未登录、账号插件未启用或请求失败时显示 `余额 --`，不会报错。余额是 Platform 的实时钱包数据（充值 + 赠送），不是本地估算。
+- 余额只显示在气泡里，不发送给任何第三方；但截图/录屏会带出金额，注意场合。
+- 问候语固定为中文，在任何界面语言下都不翻译；只有按钮提示文字跟随语言。
+- 插件自身不直接联网；余额读取经 Host 的账号服务完成。
 
 ## English
 
-A tiny DeepSeek Harness Web UI plugin that shows a “你好，腾盛” speech bubble near the bottom-right corner after the page loads. Click × to dismiss it; it returns on the next page load. The bubble can be dragged anywhere, and its position is remembered in localStorage.
+A tiny DeepSeek Harness Web UI plugin that shows a “你好，腾盛” speech bubble near the bottom-right corner after the page loads, with the signed-in account balance on a second line. Click × to dismiss it; it returns on the next page load. The bubble can be dragged anywhere, and its position is remembered in localStorage.
 
 - Install: **Plugins → Add plugin** → `dsh-plugin-greeting-bubble` (npm), or `https://github.com/liwei169/dsh-plugin-greeting-bubble` (GitHub).
-- It registers one entry into the frame-wide `shell.overlay` slot, uses `--dsw-alias-*` theme tokens, localizes its close label, and keeps every registration inside `ctx.effect` / `ctx.slots.inject` so disabling the bundle removes the bubble again.
+- It registers one entry into the frame-wide `shell.overlay` slot, uses `--dsw-alias-*` theme tokens, localizes its labels, and keeps every registration inside `ctx.effect` / `ctx.slots.inject` so disabling the bundle removes the bubble again.
 - Dragging uses pointer capture, clamps to the viewport, and saves the dropped position under `dsh-greeting-bubble:position:v1`.
-- No network access, no data collection, no model-facing behavior.
+- Balance comes from `ctx.remote.account.getBalance(...)` (Host-side Platform call with the stored credential; the browser never sees the account token), refreshed every 60 seconds while the page is visible and on click, with backoff on failure.
+- No direct network access, no data collection, no model-facing behavior.
 
 Tested with DeepSeek Harness 0.2.2-rc.5.
 
