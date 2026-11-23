@@ -227,6 +227,7 @@ dsh-plugin-greeting-bubble/
 ├─ docs/
 │  ├─ DETAIL.md          # 英文详情页文档（只含一张特性图）
 │  ├─ DETAIL.zh.md       # 中文详情页文档（同一张图，中文替代文本）
+│  ├─ DEV.md             # 维护者开发/发布/排错指南
 │  └─ preview.svg        # 特性图（640×300，无文字）
 ├─ test/
 │  └─ smoke.mjs          # 离线冒烟测试（不随包发布）
@@ -237,6 +238,8 @@ dsh-plugin-greeting-bubble/
 ```
 
 ## 本地开发与测试
+
+维护者请先看 **[docs/DEV.md](docs/DEV.md)**：里面记录了完整的开发、测试、Git 与 npm 发布流程，以及我们实际踩过的坑（模块缓存、安装残留、2FA、观察期、GitHub DNS 等）。
 
 ```powershell
 # 1. 语法检查（需要 Node.js 18+）
