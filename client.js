@@ -30,9 +30,6 @@ window.__ModuleLoader__.load({
     /** Locale namespace owned by this plugin (registered in `apply`). */
     const NS = 'greetingBubble';
 
-    /** Keep in sync with package.json's version on every release. */
-    const PLUGIN_VERSION = '1.3.0';
-
     /** Where the reader last dropped the bubble, as viewport px. */
     const POSITION_KEY = 'dsh-greeting-bubble:position:v1';
 
@@ -45,6 +42,9 @@ window.__ModuleLoader__.load({
 
     /** Below this CNY amount the bubble warns. */
     const LOW_BALANCE_CNY = 3;
+
+    /** Local-day consumption baseline; reset when the date changes. */
+    const CONSUMPTION_KEY = 'dsh-greeting-bubble:consumption:v1';
 
     /** Platform pages linked from the details panel. */
     const USAGE_URL = 'https://platform.deepseek.com/usage';
@@ -146,6 +146,85 @@ window.__ModuleLoader__.load({
     function formatTime(timestamp) {
       if (typeof timestamp !== 'number') return '--';
       return new Date(timestamp).toLocaleTimeString();
+    }
+
+    /** Today key in local time, used to reset the consumption baseline. */
+    function localDateKey() {
+      const now = new Date();
+      return now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    }
+
+    /**
+     * Estimated CNY spent today, measured from the closest known day-start
+     * balance: yesterday's last reading across midnight when available,
+     * otherwise today's first reading. A top-up raises the baseline so it does
+     * not count as negative spending.
+     * @param normal - current normal wallets.
+     * @returns `{ spent, startAt }`, or null when no CNY wallet is present.
+     */
+    function trackConsumption(normal) {
+      const cny = (normal ?? []).find((wallet) => wallet.currency === 'CNY' && typeof wallet.balance === 'string');
+      if (!cny) return null;
+      const amount = Number(cny.balance);
+      if (!Number.isFinite(amount)) return null;
+      const today = localDateKey();
+      const now = Date.now();
+      let state = null;
+      try {
+        state = JSON.parse(window.localStorage.getItem(CONSUMPTION_KEY) || 'null');
+      } catch {
+        state = null;
+      }
+      let baseline;
+      let startAt;
+      if (state && state.date === today && typeof state.baseline === 'number') {
+        baseline = state.baseline;
+        startAt = typeof state.startAt === 'number' ? state.startAt : now;
+        if (typeof state.lastAmount === 'number' && amount > state.lastAmount) {
+          // A top-up mid-day: keep the spend counter continuous.
+          baseline += amount - state.lastAmount;
+        }
+      } else if (state && typeof state.lastAmount === 'number' && typeof state.lastAt === 'number'
+        && localDateKey(new Date(state.lastAt)) !== today) {
+        // The plugin was running before midnight: its last reading is the
+        // closest available day-start balance.
+        baseline = state.lastAmount;
+        startAt = state.lastAt;
+      } else {
+        // No reading from before today: today's first reading is the baseline.
+        baseline = amount;
+        startAt = now;
+      }
+      try {
+        window.localStorage.setItem(CONSUMPTION_KEY, JSON.stringify({
+          date: today,
+          baseline,
+          startAt,
+          lastAmount: amount,
+          lastAt: now,
+        }));
+      } catch {
+        // Storage unavailable: the estimate simply does not survive the reload.
+      }
+      return { spent: Math.max(0, baseline - amount), startAt };
+    }
+
+    /** Greeting key by local hour. */
+    function greetingKeyForHour(hour) {
+      if (hour >= 5 && hour < 11) return 'greetingMorning';
+      if (hour >= 11 && hour < 13) return 'greetingNoon';
+      if (hour >= 13 && hour < 18) return 'greetingAfternoon';
+      return 'greetingEvening';
+    }
+
+    /** Subscribe to a host observable (or read it once when unavailable). */
+    function useObservable(source) {
+      const subscribe = source && typeof source.subscribe === 'function' ? source.subscribe.bind(source) : null;
+      const get = source && typeof source.getSnapshot === 'function' ? source.getSnapshot.bind(source) : () => undefined;
+      if (typeof React.useSyncExternalStore === 'function' && subscribe !== null) {
+        return React.useSyncExternalStore(subscribe, get, get);
+      }
+      return get();
     }
 
     /**
@@ -338,13 +417,14 @@ window.__ModuleLoader__.load({
      * @param props - the framework `t` seat plus injected balance/profile loaders.
      * @returns the bubble, or null once the reader dismissed it.
      */
-    function GreetingBubble({ t, loadBalance, loadProfile }) {
+    function GreetingBubble({ t, loadBalance, loadProfile, connection }) {
       const [dismissed, setDismissed] = React.useState(false);
       const [position, setPosition] = React.useState(readPosition);
       const [dragging, setDragging] = React.useState(false);
       const [balance, setBalance] = React.useState(null);
       const [profile, setProfile] = React.useState(null);
       const [updatedAt, setUpdatedAt] = React.useState(null);
+      const [spent, setSpent] = React.useState(null);
       const [expanded, setExpanded] = React.useState(false);
       const [privacy, setPrivacy] = React.useState(readPrivacy);
       const bubbleRef = React.useRef(null);
@@ -356,6 +436,8 @@ window.__ModuleLoader__.load({
       const cancelledRef = React.useRef(false);
 
       const label = (key, fallback) => (typeof t === 'function' ? t(key) : fallback);
+      const connectionState = useObservable(connection && connection.state);
+      const canReconnect = Boolean(connection && typeof connection.reconnect === 'function');
 
       /** Fetch once, deduplicating concurrent calls. */
       function readBalance() {
@@ -366,7 +448,7 @@ window.__ModuleLoader__.load({
           .then((result) => {
             if (!result || result.ok !== true) return null;
             const wallets = normalizeBalance(result.value);
-            return wallets === null ? null : { wallets, at: Date.now() };
+            return wallets === null ? null : { wallets, at: Date.now(), spent: trackConsumption(wallets.normal) };
           })
           .catch(() => null)
           .finally(() => { inFlightRef.current = null; });
@@ -405,6 +487,7 @@ window.__ModuleLoader__.load({
           if (result !== null) {
             setBalance(result.wallets);
             setUpdatedAt(result.at);
+            setSpent(result.spent);
           }
           backoffRef.current = result === null
             ? Math.min(backoffRef.current * 2, BALANCE_MAX_BACKOFF_MS)
@@ -450,10 +533,9 @@ window.__ModuleLoader__.load({
       }, []);
 
       if (dismissed) return null;
-      const greeting = label('greeting', '你好，腾盛');
+      const greeting = label(greetingKeyForHour(new Date().getHours()), '你好，腾盛');
       const dismissLabel = label('dismiss', '关闭问候气泡');
       const normalText = balance === null ? null : formatWallets(balance.normal);
-      const bonusText = balance === null ? null : formatWallets(balance.bonus);
       const low = balance !== null && isLowBalance(balance.normal);
       const amountText = privacy
         ? label('hidden', '••••')
@@ -461,6 +543,18 @@ window.__ModuleLoader__.load({
       const accountText = profile && (profile.name || profile.contact)
         ? [profile.name, profile.contact].filter(Boolean).join(' · ')
         : label('unavailable', '--');
+      const connectionText = connectionState === 'connected'
+        ? label('connected', '已连接')
+        : connectionState === 'connecting'
+          ? label('connecting', '重连中')
+          : connectionState === 'disconnected'
+            ? label('disconnected', '已断开')
+            : label('unavailable', '--');
+      const spentText = spent === null
+        ? label('unavailable', '--')
+        : '≈ ' + currencySymbol('CNY') + formatAmount(spent.spent) + ' '
+          + label('estimate', '（估算）')
+          + (typeof spent.startAt === 'number' ? ' · ' + label('baseline', '基准') + ' ' + formatTime(spent.startAt) : '');
 
       /** Refresh now and reset the backoff. */
       function handleRefresh() {
@@ -469,6 +563,7 @@ window.__ModuleLoader__.load({
           if (cancelledRef.current || result === null) return;
           setBalance(result.wallets);
           setUpdatedAt(result.at);
+          setSpent(result.spent);
         });
       }
 
@@ -629,18 +724,31 @@ window.__ModuleLoader__.load({
               h(
                 'div',
                 { className: 'dsh-greeting-row' },
-                h('span', { className: 'dsh-greeting-row-label' }, label('bonusBalance', '赠送')),
-                h('span', { className: 'dsh-greeting-row-value' }, privacy ? label('hidden', '••••') : (bonusText ?? label('unavailable', '--'))),
+                h('span', { className: 'dsh-greeting-row-label' }, label('updated', '更新')),
+                h('span', { className: 'dsh-greeting-row-value' }, formatTime(updatedAt)),
               ),
               h(
                 'div',
                 { className: 'dsh-greeting-row' },
-                h('span', { className: 'dsh-greeting-row-label' }, label('updated', '更新')),
-                h('span', { className: 'dsh-greeting-row-value' }, formatTime(updatedAt) + ' · v' + PLUGIN_VERSION),
+                h('span', { className: 'dsh-greeting-row-label' }, label('connection', '连接')),
+                h('span', { className: 'dsh-greeting-row-value' }, connectionText),
+              ),
+              h(
+                'div',
+                { className: 'dsh-greeting-row' },
+                h('span', { className: 'dsh-greeting-row-label' }, label('today', '今日使用')),
+                h('span', { className: 'dsh-greeting-row-value' }, spentText),
               ),
               h(
                 'div',
                 { className: 'dsh-greeting-actions' },
+                canReconnect && connectionState !== 'connected'
+                  ? h(
+                    'button',
+                    { className: 'dsh-greeting-action', type: 'button', onClick: () => { connection.reconnect(); } },
+                    label('reconnect', '重连'),
+                  )
+                  : null,
                 h(
                   'button',
                   { className: 'dsh-greeting-action', type: 'button', onClick: handleRefresh },
@@ -661,7 +769,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale', 'remote', 'remote.account'],
+      inject: ['slots', 'locale', 'remote', 'remote.account', 'connection'],
       /**
        * Register the plugin's dictionary and its single overlay entry.
        * @param ctx - client plugin context.
@@ -673,13 +781,24 @@ window.__ModuleLoader__.load({
             // identical in every locale; only control labels are localized.
             zh: {
               greeting: '你好，腾盛',
+              greetingMorning: '早上好，腾盛',
+              greetingNoon: '中午好，腾盛',
+              greetingAfternoon: '下午好，腾盛',
+              greetingEvening: '晚上好，腾盛',
               dismiss: '关闭问候气泡',
               balance: '余额',
               bonus: '赠送',
               topUpBalance: '充值',
-              bonusBalance: '赠送',
               account: '账户',
+              connection: '连接',
+              connected: '已连接',
+              connecting: '重连中',
+              disconnected: '已断开',
+              reconnect: '重连',
               updated: '更新',
+              today: '今日使用',
+              estimate: '（估算）',
+              baseline: '基准',
               hidden: '••••',
               unavailable: '--',
               lowBalance: '余额不足',
@@ -692,13 +811,24 @@ window.__ModuleLoader__.load({
             },
             en: {
               greeting: '你好，腾盛',
+              greetingMorning: '你好，腾盛',
+              greetingNoon: '你好，腾盛',
+              greetingAfternoon: '你好，腾盛',
+              greetingEvening: '你好，腾盛',
               dismiss: 'Dismiss greeting',
               balance: 'Balance',
               bonus: 'Bonus',
               topUpBalance: 'Top-up',
-              bonusBalance: 'Bonus',
               account: 'Account',
+              connection: 'Connection',
+              connected: 'Connected',
+              connecting: 'Reconnecting',
+              disconnected: 'Disconnected',
+              reconnect: 'Reconnect',
               updated: 'Updated',
+              today: "Today's usage",
+              estimate: '(estimate)',
+              baseline: 'baseline',
               hidden: '••••',
               unavailable: '--',
               lowBalance: 'Low balance',
@@ -746,7 +876,7 @@ window.__ModuleLoader__.load({
           id: 'greeting-bubble',
           order: 50,
           locale: NS,
-          inject: () => ({ loadBalance, loadProfile }),
+          inject: () => ({ loadBalance, loadProfile, connection: ctx.connection }),
         }, GreetingBubble));
       },
     };
