@@ -135,30 +135,30 @@ const connection = {
   reconnect: () => {},
 };
 const tree = registered.component({ t, loadBalance: face.loadBalance, loadProfile: face.loadProfile, connection });
-const bubble = tree.children.find((child) => child && child.type === 'div' && child.props.className === 'dsh-greeting-bubble');
-assert(bubble, 'bubble element rendered');
-assert(bubble.props.role === undefined, 'the dismiss button stays outside the live region');
-assert(typeof bubble.props.onPointerDown === 'function', 'bubble can start a drag');
-assert(typeof bubble.props.onPointerMove === 'function', 'bubble follows the pointer');
-assert(typeof bubble.props.onPointerUp === 'function', 'bubble finishes a drag');
+const widget = tree;
+assert(widget && widget.props && widget.props.className === 'dsh-greeting-widget', 'widget element rendered');
+assert(typeof widget.props.onPointerDown === 'function', 'widget can start a drag');
+assert(typeof widget.props.onPointerMove === 'function', 'widget follows the pointer');
+assert(typeof widget.props.onPointerUp === 'function', 'widget finishes a drag');
 
-const main = bubble.children.find((child) => child && child.type === 'div' && child.props.className === 'dsh-greeting-main');
-assert(main, 'main row rendered');
-const text = main.children.find((child) => child && child.type === 'span' && child.props.className === 'dsh-greeting-text');
-assert(text && /好，腾盛$/.test(text.children[0]), 'rendered time-based greeting text');
-assert(text.props.role === 'status', 'greeting text is the status region');
-assert(text.props.lang === 'zh-CN', 'greeting text declares its language');
-const close = main.children.find((child) => child && child.type === 'button');
-assert(close && close.props['aria-label'] === '关闭问候气泡', 'close button label');
+const avatar = widget.children.find((child) => child && child.type === 'button' && child.props.className === 'dsh-greeting-avatar');
+assert(avatar, 'robot avatar rendered');
+assert(avatar.props['aria-expanded'] === 'false', 'widget starts collapsed');
+assert(typeof avatar.props.onClick === 'function', 'avatar toggles the card');
 
-const toggle = bubble.children.find((child) => child && child.type === 'button' && child.props.className === 'dsh-greeting-toggle');
-assert(toggle, 'balance toggle rendered');
-assert(toggle.props['aria-expanded'] === 'false', 'details start collapsed');
-assert(typeof toggle.props.onClick === 'function', 'toggle expands details');
-const toggleText = toggle.children.find((child) => child && child.type === 'span' && typeof child.children[0] === 'string' && child.children[0].startsWith('余额'));
-assert(toggleText && toggleText.children[0] === '余额 --', 'balance placeholder before the first read');
-const details = bubble.children.find((child) => child && child.props && child.props.className === 'dsh-greeting-details');
+const card = widget.children.find((child) => child && child.type === 'div' && child.props.className === 'dsh-greeting-card dsh-greeting-card-compact');
+assert(card, 'compact card rendered');
+assert(card.props.role === 'button', 'compact card is activatable');
+assert(typeof card.props.onClick === 'function', 'compact card expands on click');
+const greeting = card.children.find((child) => child && child.type === 'span' && child.props.className === 'dsh-greeting-greeting');
+assert(greeting && /好，腾盛$/.test(greeting.children[0]), 'rendered time-based greeting text');
+assert(greeting.props.role === 'status', 'greeting text is the status region');
+assert(greeting.props.lang === 'zh-CN', 'greeting text declares its language');
+const amount = card.children.find((child) => child && child.type === 'span' && child.props.className === 'dsh-greeting-amount');
+assert(amount && amount.children[0] === '--', 'amount placeholder before the first read');
+const details = widget.children.find((child) => child && child.props && child.props.className === 'dsh-greeting-details');
 assert(details === undefined, 'details are hidden while collapsed');
+assert(widget.children.some((child) => child && child.type === 'style'), 'component stylesheet is rendered');
 
 console.log('ok: module id, plugin shape, registration options, dictionaries, account Remote, and a render pass');
 console.log('effects: ' + effectLabels.join(' | '));

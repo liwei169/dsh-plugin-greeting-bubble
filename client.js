@@ -4,22 +4,19 @@
  * Loaded lazily by the DSH client module table: this file only registers a
  * factory. The factory returns a Cordis plugin whose `apply` owns every live
  * resource through `ctx.effect` / `ctx.slots.inject`, so disabling or removing
- * the bundle removes the bubble again without a reload.
+ * the bundle removes the widget again without a reload.
  *
  * Rendering surface: the `shell.overlay` list slot declared by
  * `@deepseek-ai/dsh-client-ui-layout`. It is a frame-wide layer above every
- * column, so the bubble floats over the whole app without moving any host
- * control. Registering a fresh `id` adds an entry beside the shipped ones
- * instead of replacing them.
+ * column, so the widget floats over the whole app without moving any host
+ * control.
  *
- * Features:
- * - draggable, viewport-clamped, position remembered in localStorage;
- * - account balance from the Host `account` Remote (never the token itself),
- *   refreshed every 60s while visible, with backoff and a manual refresh;
- * - privacy mode hides amounts (remembered);
- * - a low-balance warning below 3 CNY;
- * - an expandable details panel with wallets, account, update time, version,
- *   and links to the Platform usage/top-up pages.
+ * v1.5 visual language:
+ * - a small robot avatar beside one speech card, dragged as a single unit;
+ * - collapsed: robot + `greeting · amount` pill; expanded: greeting, details,
+ *   and actions;
+ * - the robot reflects state: accent while connected, warning colour on a low
+ *   balance, muted and "eyes closed" while disconnected, and a blinking idle.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-plugin-greeting-bubble',
@@ -30,8 +27,8 @@ window.__ModuleLoader__.load({
     /** Locale namespace owned by this plugin (registered in `apply`). */
     const NS = 'greetingBubble';
 
-    /** Where the reader last dropped the bubble, as viewport px. */
-    const POSITION_KEY = 'dsh-greeting-bubble:position:v1';
+    /** Where the reader last dropped the widget, as viewport px. */
+    const POSITION_KEY = 'dsh-greeting-bubble:position:v2';
 
     /** Whether amounts are hidden. */
     const PRIVACY_KEY = 'dsh-greeting-bubble:privacy:v1';
@@ -40,7 +37,7 @@ window.__ModuleLoader__.load({
     const BALANCE_REFRESH_MS = 60_000;
     const BALANCE_MAX_BACKOFF_MS = 300_000;
 
-    /** Below this CNY amount the bubble warns. */
+    /** Below this CNY amount the widget warns. */
     const LOW_BALANCE_CNY = 3;
 
     /** Local-day consumption baseline; reset when the date changes. */
@@ -49,6 +46,9 @@ window.__ModuleLoader__.load({
     /** Platform pages linked from the details panel. */
     const USAGE_URL = 'https://platform.deepseek.com/usage';
     const TOP_UP_URL = 'https://platform.deepseek.com/top_up';
+
+    /** Movement in px beyond which a pointer gesture counts as a drag, not a click. */
+    const DRAG_THRESHOLD = 4;
 
     /** Read the remembered spot; a corrupt or absent value means "default". */
     function readPosition() {
@@ -65,7 +65,7 @@ window.__ModuleLoader__.load({
       return null;
     }
 
-    /** Persist the dropped spot; failures must never break the bubble. */
+    /** Persist the dropped spot; failures must never break the widget. */
     function writePosition(position) {
       try {
         window.localStorage.setItem(POSITION_KEY, JSON.stringify(position));
@@ -159,8 +159,6 @@ window.__ModuleLoader__.load({
      * balance: yesterday's last reading across midnight when available,
      * otherwise today's first reading. A top-up raises the baseline so it does
      * not count as negative spending.
-     * @param normal - current normal wallets.
-     * @returns `{ spent, startAt }`, or null when no CNY wallet is present.
      */
     function trackConsumption(normal) {
       const cny = (normal ?? []).find((wallet) => wallet.currency === 'CNY' && typeof wallet.balance === 'string');
@@ -181,17 +179,13 @@ window.__ModuleLoader__.load({
         baseline = state.baseline;
         startAt = typeof state.startAt === 'number' ? state.startAt : now;
         if (typeof state.lastAmount === 'number' && amount > state.lastAmount) {
-          // A top-up mid-day: keep the spend counter continuous.
           baseline += amount - state.lastAmount;
         }
       } else if (state && typeof state.lastAmount === 'number' && typeof state.lastAt === 'number'
         && localDateKey(new Date(state.lastAt)) !== today) {
-        // The plugin was running before midnight: its last reading is the
-        // closest available day-start balance.
         baseline = state.lastAmount;
         startAt = state.lastAt;
       } else {
-        // No reading from before today: today's first reading is the baseline.
         baseline = amount;
         startAt = now;
       }
@@ -229,7 +223,8 @@ window.__ModuleLoader__.load({
 
     /**
      * Component-local stylesheet; unmounting the entry removes it with the
-     * node.
+     * node. Every colour comes from a `--dsw-alias-*` token so themes keep
+     * working; the robot itself is a plain SVG drawn with `currentColor`.
      */
     const STYLES = `
 .dsh-greeting-layer {
@@ -237,18 +232,75 @@ window.__ModuleLoader__.load({
   inset: 0;
   pointer-events: none;
 }
-.dsh-greeting-bubble {
+.dsh-greeting-widget {
   position: absolute;
   right: calc(20px + env(safe-area-inset-right, 0px));
   bottom: calc(84px + env(safe-area-inset-bottom, 0px));
   z-index: 1;
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: calc(100vw - 40px);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  pointer-events: auto;
+  animation: dsh-greeting-in 320ms cubic-bezier(0.22, 0.8, 0.24, 1) 350ms both;
+}
+.dsh-greeting-widget[data-dragging] {
+  cursor: grabbing;
+}
+.dsh-greeting-avatar {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dsw-alias-state-business-primary, #3b6fe0);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: color 120ms ease;
+}
+.dsh-greeting-widget[data-low] .dsh-greeting-avatar {
+  color: var(--dsw-alias-state-warn-primary, #b26a00);
+}
+.dsh-greeting-widget[data-disconnected] .dsh-greeting-avatar {
+  color: var(--dsw-alias-label-tertiary);
+}
+.dsh-greeting-avatar svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.dsh-greeting-eye {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.dsh-greeting-widget[data-disconnected] .dsh-greeting-eyes {
+  transform: scaleY(0.12);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.dsh-greeting-widget:not([data-disconnected]) .dsh-greeting-eyes {
+  animation: dsh-greeting-blink 7s ease-in-out infinite;
+}
+.dsh-greeting-antenna-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.dsh-greeting-widget[data-refreshing] .dsh-greeting-antenna-dot {
+  animation: dsh-greeting-pulse 900ms ease-in-out infinite;
+}
+.dsh-greeting-card {
   box-sizing: border-box;
-  max-width: min(380px, calc(100vw - 40px));
-  padding: 8px 6px 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: min(360px, calc(100vw - 70px));
+  padding: 8px 8px 8px 10px;
   border: 0;
   --dsw-elevation-stroke-color: var(--dsw-alias-border-l3);
   border-radius: var(--dsw-radius-lg, 16px);
@@ -257,37 +309,64 @@ window.__ModuleLoader__.load({
   box-shadow: var(--dsw-elevation-prominent, 0 4px 16px rgba(0, 0, 0, 0.12));
   font-size: 13px;
   line-height: 20px;
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
   pointer-events: auto;
-  animation: dsh-greeting-in 320ms cubic-bezier(0.22, 0.8, 0.24, 1) 350ms both;
 }
-.dsh-greeting-bubble[data-dragging] {
-  cursor: grabbing;
+.dsh-greeting-card-compact {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
 }
-.dsh-greeting-main {
+.dsh-greeting-card-compact:hover {
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-3) 92%, var(--dsw-alias-label-primary));
+}
+.dsh-greeting-greeting {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+.dsh-greeting-amount {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+}
+.dsh-greeting-widget[data-low] .dsh-greeting-amount {
+  color: var(--dsw-alias-state-warn-primary, #b26a00);
+}
+.dsh-greeting-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-warn-primary, #b26a00);
+}
+.dsh-greeting-head {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+  padding-left: 2px;
 }
-.dsh-greeting-wave {
-  flex: none;
-  font-size: 16px;
-  line-height: 1;
-}
-.dsh-greeting-text {
+.dsh-greeting-head-text {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
 }
 .dsh-greeting-close {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   margin-left: auto;
   padding: 0;
   border: 0;
@@ -301,57 +380,16 @@ window.__ModuleLoader__.load({
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-secondary);
 }
-.dsh-greeting-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 0 0 0 24px;
-  border: 0;
-  border-radius: var(--dsw-radius-xs, 4px);
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary);
-  font: inherit;
-  font-size: 12px;
-  line-height: 16px;
-  text-align: left;
-  width: fit-content;
-  max-width: 100%;
-  cursor: pointer;
-  pointer-events: auto;
-}
-.dsh-greeting-toggle:hover {
-  color: var(--dsw-alias-label-secondary);
-}
-.dsh-greeting-toggle[data-low] {
-  color: var(--dsw-alias-state-warn-primary, #b26a00);
-}
-.dsh-greeting-chevron {
-  display: inline-block;
-  transition: transform 120ms ease;
-}
-.dsh-greeting-toggle[aria-expanded='true'] .dsh-greeting-chevron {
-  transform: rotate(90deg);
-}
-.dsh-greeting-warn {
-  flex: none;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #b26a00) 14%, transparent);
-  font-size: 11px;
-  line-height: 16px;
-}
 .dsh-greeting-details {
   display: flex;
   flex-direction: column;
   gap: 3px;
   margin-top: 4px;
-  padding: 6px 6px 2px 24px;
+  padding: 6px 6px 0 2px;
   border-top: 0.5px solid var(--dsw-alias-border-l3);
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   line-height: 17px;
-  cursor: default;
 }
 .dsh-greeting-row {
   display: flex;
@@ -393,7 +431,8 @@ window.__ModuleLoader__.load({
   text-decoration: underline;
 }
 .dsh-greeting-action:focus-visible,
-.dsh-greeting-toggle:focus-visible,
+.dsh-greeting-card-compact:focus-visible,
+.dsh-greeting-avatar:focus-visible,
 .dsh-greeting-close:focus-visible {
   outline: var(--dsw-focus-ring-width, 2px) solid
     var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
@@ -409,31 +448,69 @@ window.__ModuleLoader__.load({
     transform: translateY(0) scale(1);
   }
 }
+@keyframes dsh-greeting-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.1); }
+}
+@keyframes dsh-greeting-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
 @media (prefers-reduced-motion: reduce) {
-  .dsh-greeting-bubble {
+  .dsh-greeting-widget,
+  .dsh-greeting-widget:not([data-disconnected]) .dsh-greeting-eyes,
+  .dsh-greeting-widget[data-refreshing] .dsh-greeting-antenna-dot {
     animation: none;
   }
 }
 `;
 
+    /** The little robot beside the card. */
+    function RobotAvatar() {
+      return h(
+        'svg',
+        { viewBox: '0 0 32 32', 'aria-hidden': 'true', focusable: 'false' },
+        h('g', { className: 'dsh-greeting-antenna' },
+          h('path', { d: 'M16 7V4', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' }),
+          h('circle', { className: 'dsh-greeting-antenna-dot', cx: 16, cy: 2.6, r: 2, fill: 'currentColor' }),
+        ),
+        h('rect', { x: 3, y: 12, width: 2.6, height: 7, rx: 1.3, fill: 'currentColor' }),
+        h('rect', { x: 26.4, y: 12, width: 2.6, height: 7, rx: 1.3, fill: 'currentColor' }),
+        h('rect', { x: 5.5, y: 7.5, width: 21, height: 17, rx: 6.5, fill: 'currentColor' }),
+        h('g', { className: 'dsh-greeting-eyes', fill: 'var(--dsw-alias-label-on-color, #ffffff)' },
+          h('circle', { className: 'dsh-greeting-eye', cx: 12, cy: 15, r: 2.1 }),
+          h('circle', { className: 'dsh-greeting-eye', cx: 20, cy: 15, r: 2.1 }),
+        ),
+        h('path', {
+          d: 'M12 20c1.6 2.2 6.4 2.2 8 0',
+          fill: 'none',
+          stroke: 'var(--dsw-alias-label-on-color, #ffffff)',
+          strokeWidth: 1.6,
+          strokeLinecap: 'round',
+        }),
+      );
+    }
+
     /**
-     * The greeting bubble itself.
+     * The greeting widget: robot + speech card, draggable as one unit.
      *
      * @param props - the framework `t` seat plus injected balance/profile loaders.
-     * @returns the bubble, or null once the reader dismissed it.
+     * @returns the widget, or null once the reader dismissed it.
      */
     function GreetingBubble({ t, loadBalance, loadProfile, connection }) {
       const [dismissed, setDismissed] = React.useState(false);
       const [position, setPosition] = React.useState(readPosition);
       const [dragging, setDragging] = React.useState(false);
+      const [expanded, setExpanded] = React.useState(false);
       const [balance, setBalance] = React.useState(null);
       const [profile, setProfile] = React.useState(null);
       const [updatedAt, setUpdatedAt] = React.useState(null);
       const [spent, setSpent] = React.useState(null);
-      const [expanded, setExpanded] = React.useState(false);
       const [privacy, setPrivacy] = React.useState(readPrivacy);
-      const bubbleRef = React.useRef(null);
+      const [refreshing, setRefreshing] = React.useState(false);
+      const widgetRef = React.useRef(null);
       const dragRef = React.useRef(null);
+      const suppressClickRef = React.useRef(false);
       const inFlightRef = React.useRef(null);
       const profileRef = React.useRef(null);
       const timerRef = React.useRef(null);
@@ -448,6 +525,7 @@ window.__ModuleLoader__.load({
       function readBalance() {
         if (typeof loadBalance !== 'function') return Promise.resolve(null);
         if (inFlightRef.current !== null) return inFlightRef.current;
+        setRefreshing(true);
         const run = Promise.resolve()
           .then(() => loadBalance())
           .then((result) => {
@@ -456,7 +534,10 @@ window.__ModuleLoader__.load({
             return wallets === null ? null : { wallets, at: Date.now(), spent: trackConsumption(wallets.normal) };
           })
           .catch(() => null)
-          .finally(() => { inFlightRef.current = null; });
+          .finally(() => {
+            inFlightRef.current = null;
+            if (!cancelledRef.current) setRefreshing(false);
+          });
         inFlightRef.current = run;
         return run;
       }
@@ -526,7 +607,7 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         function handleResize() {
           setPosition((current) => {
-            const element = bubbleRef.current;
+            const element = widgetRef.current;
             if (current === null || element === null) return current;
             const x = clamp(current.x, 0, window.innerWidth - element.offsetWidth);
             const y = clamp(current.y, 0, window.innerHeight - element.offsetHeight);
@@ -555,9 +636,8 @@ window.__ModuleLoader__.load({
           : connectionState === 'disconnected'
             ? label('disconnected', '已断开')
             : label('unavailable', '--');
-      const spentText = spent === null
-        ? label('unavailable', '--')
-        : '≈ ' + currencySymbol('CNY') + formatAmount(spent.spent);
+      const spentText = spent === null ? label('unavailable', '--') : '≈ ' + currencySymbol('CNY') + formatAmount(spent.spent);
+      const collapsedLabel = greeting + ' · ' + amountText;
 
       /** Refresh now and reset the backoff. */
       function handleRefresh() {
@@ -571,7 +651,7 @@ window.__ModuleLoader__.load({
       }
 
       /** Expand/collapse; the first expansion loads the account profile. */
-      function handleToggle() {
+      function toggleExpanded() {
         setExpanded((current) => {
           const next = !current;
           if (next && profile === null) {
@@ -592,11 +672,11 @@ window.__ModuleLoader__.load({
         });
       }
 
-      /** Start a drag: switch to absolute coordinates and capture the pointer. */
-      function handlePointerDown(event) {
+      /** Suppress the click that follows a drag gesture. */
+      function beginDrag(event) {
         if (event.button !== undefined && event.button !== 0) return;
         if (event.target && event.target.closest && event.target.closest('button, a')) return;
-        const element = bubbleRef.current;
+        const element = widgetRef.current;
         if (!element) return;
         const rect = element.getBoundingClientRect();
         dragRef.current = {
@@ -607,6 +687,7 @@ window.__ModuleLoader__.load({
           top: rect.top,
           width: rect.width,
           height: rect.height,
+          moved: false,
         };
         setPosition({ x: rect.left, y: rect.top });
         setDragging(true);
@@ -617,24 +698,25 @@ window.__ModuleLoader__.load({
       }
 
       /** Move within the viewport while the pointer is captured. */
-      function handlePointerMove(event) {
+      function moveDrag(event) {
         const drag = dragRef.current;
         if (drag === null || event.pointerId !== drag.pointerId) return;
-        const x = drag.left + event.clientX - drag.startX;
-        const y = drag.top + event.clientY - drag.startY;
+        const dx = event.clientX - drag.startX;
+        const dy = event.clientY - drag.startY;
+        if (!drag.moved && Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD) drag.moved = true;
         setPosition({
-          x: clamp(x, 0, window.innerWidth - drag.width),
-          y: clamp(y, 0, window.innerHeight - drag.height),
+          x: clamp(drag.left + dx, 0, window.innerWidth - drag.width),
+          y: clamp(drag.top + dy, 0, window.innerHeight - drag.height),
         });
       }
 
       /** Finish a drag, clamp once more, and persist the dropped spot. */
-      function handlePointerUp(event) {
+      function endDrag(event) {
         const drag = dragRef.current;
         if (drag === null || event.pointerId !== drag.pointerId) return;
         dragRef.current = null;
         setDragging(false);
-        const element = bubbleRef.current;
+        const element = widgetRef.current;
         if (!element) return;
         const rect = element.getBoundingClientRect();
         const dropped = {
@@ -643,75 +725,90 @@ window.__ModuleLoader__.load({
         };
         setPosition(dropped);
         writePosition(dropped);
+        if (drag.moved) {
+          suppressClickRef.current = true;
+          window.setTimeout(() => { suppressClickRef.current = false; }, 0);
+        }
+      }
+
+      /** Toggle the card, ignoring the click that ends a drag and inner controls. */
+      function handleCardClick(event) {
+        if (suppressClickRef.current) return;
+        if (event.target && event.target.closest && event.target.closest('button, a')) return;
+        toggleExpanded();
+      }
+
+      /** Keyboard activation for the compact card. */
+      function handleCardKeyDown(event) {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        toggleExpanded();
       }
 
       return h(
         'div',
-        { className: 'dsh-greeting-layer', style: { position: 'absolute', inset: 0, pointerEvents: 'none' } },
+        {
+          className: 'dsh-greeting-widget',
+          ref: widgetRef,
+          'data-dragging': dragging ? '' : undefined,
+          'data-expanded': expanded ? '' : undefined,
+          'data-low': low ? '' : undefined,
+          'data-refreshing': refreshing ? '' : undefined,
+          'data-disconnected': connectionState === 'disconnected' ? '' : undefined,
+          style: position === null
+            ? undefined
+            : { left: position.x, top: position.y, right: 'auto', bottom: 'auto' },
+          onPointerDown: beginDrag,
+          onPointerMove: moveDrag,
+          onPointerUp: endDrag,
+          onPointerCancel: endDrag,
+        },
         h('style', { key: 'styles' }, STYLES),
         h(
-          'div',
+          'button',
           {
-            key: 'bubble',
-            ref: bubbleRef,
-            className: 'dsh-greeting-bubble',
-            'data-dragging': dragging ? '' : undefined,
-            style: position === null
-              ? undefined
-              : { left: position.x, top: position.y, right: 'auto', bottom: 'auto' },
-            onPointerDown: handlePointerDown,
-            onPointerMove: handlePointerMove,
-            onPointerUp: handlePointerUp,
-            onPointerCancel: handlePointerUp,
+            className: 'dsh-greeting-avatar',
+            type: 'button',
+            title: greeting,
+            'aria-label': greeting,
+            'aria-expanded': expanded ? 'true' : 'false',
+            onClick: toggleExpanded,
           },
-          h(
+          h(RobotAvatar),
+        ),
+        expanded
+          ? h(
             'div',
-            { className: 'dsh-greeting-main', key: 'main' },
-            h('span', { className: 'dsh-greeting-wave', 'aria-hidden': 'true' }, '👋'),
-            h('span', { className: 'dsh-greeting-text', role: 'status', lang: 'zh-CN' }, greeting),
+            { className: 'dsh-greeting-card', key: 'card' },
             h(
-              'button',
-              {
-                className: 'dsh-greeting-close',
-                type: 'button',
-                title: dismissLabel,
-                'aria-label': dismissLabel,
-                onClick: () => { setDismissed(true); },
-              },
+              'div',
+              { className: 'dsh-greeting-head' },
+              h('span', { className: 'dsh-greeting-head-text', role: 'status', lang: 'zh-CN' }, greeting),
               h(
-                'svg',
-                { width: 13, height: 13, viewBox: '0 0 12 12', 'aria-hidden': 'true' },
-                h('path', {
-                  d: 'M2.5 2.5l7 7M9.5 2.5l-7 7',
-                  fill: 'none',
-                  stroke: 'currentColor',
-                  strokeWidth: 1.4,
-                  strokeLinecap: 'round',
-                }),
+                'button',
+                {
+                  className: 'dsh-greeting-close',
+                  type: 'button',
+                  title: dismissLabel,
+                  'aria-label': dismissLabel,
+                  onClick: () => { setDismissed(true); },
+                },
+                h(
+                  'svg',
+                  { width: 12, height: 12, viewBox: '0 0 12 12', 'aria-hidden': 'true' },
+                  h('path', {
+                    d: 'M2.5 2.5l7 7M9.5 2.5l-7 7',
+                    fill: 'none',
+                    stroke: 'currentColor',
+                    strokeWidth: 1.4,
+                    strokeLinecap: 'round',
+                  }),
+                ),
               ),
             ),
-          ),
-          h(
-            'button',
-            {
-              key: 'toggle',
-              className: 'dsh-greeting-toggle',
-              type: 'button',
-              'data-low': low ? '' : undefined,
-              'aria-expanded': expanded ? 'true' : 'false',
-              title: label('details', '展开详情'),
-              onClick: handleToggle,
-            },
-            h('span', { className: 'dsh-greeting-chevron', 'aria-hidden': 'true' }, '▸'),
-            h('span', null, label('balance', '余额') + ' ' + amountText),
-            low
-              ? h('span', { className: 'dsh-greeting-warn' }, label('lowBalance', '余额不足'))
-              : null,
-          ),
-          expanded
-            ? h(
+            h(
               'div',
-              { className: 'dsh-greeting-details', key: 'details' },
+              { className: 'dsh-greeting-details' },
               h(
                 'div',
                 { className: 'dsh-greeting-row' },
@@ -721,7 +818,7 @@ window.__ModuleLoader__.load({
               h(
                 'div',
                 { className: 'dsh-greeting-row' },
-                h('span', { className: 'dsh-greeting-row-label' }, label('topUpBalance', '充值')),
+                h('span', { className: 'dsh-greeting-row-label' }, label('topUpBalance', '充值余额')),
                 h('span', { className: 'dsh-greeting-row-value' }, privacy ? label('hidden', '••••') : (normalText ?? label('unavailable', '--'))),
               ),
               h(
@@ -765,9 +862,24 @@ window.__ModuleLoader__.load({
                 h('a', { className: 'dsh-greeting-action', href: USAGE_URL, target: '_blank', rel: 'noreferrer' }, label('usage', '用量')),
                 h('a', { className: 'dsh-greeting-action', href: TOP_UP_URL, target: '_blank', rel: 'noreferrer' }, label('topUp', '充值')),
               ),
-            )
-            : null,
-        ),
+            ),
+          )
+          : h(
+            'div',
+            {
+              className: 'dsh-greeting-card dsh-greeting-card-compact',
+              key: 'compact',
+              role: 'button',
+              tabIndex: 0,
+              'aria-label': collapsedLabel,
+              'aria-expanded': 'false',
+              onClick: handleCardClick,
+              onKeyDown: handleCardKeyDown,
+            },
+            h('span', { className: 'dsh-greeting-greeting', role: 'status', lang: 'zh-CN' }, greeting),
+            h('span', { className: 'dsh-greeting-amount' }, amountText),
+            low ? h('span', { className: 'dsh-greeting-dot', 'aria-hidden': 'true' }) : null,
+          ),
       );
     }
 
@@ -790,7 +902,6 @@ window.__ModuleLoader__.load({
               greetingEvening: '晚上好，腾盛',
               dismiss: '关闭问候气泡',
               balance: '余额',
-              bonus: '赠送',
               topUpBalance: '充值余额',
               account: '账户',
               connection: '连接',
@@ -803,7 +914,6 @@ window.__ModuleLoader__.load({
               hidden: '••••',
               unavailable: '--',
               lowBalance: '余额不足',
-              details: '展开详情',
               refresh: '刷新',
               hideAmount: '隐藏金额',
               showAmount: '显示金额',
@@ -818,7 +928,6 @@ window.__ModuleLoader__.load({
               greetingEvening: '你好，腾盛',
               dismiss: 'Dismiss greeting',
               balance: 'Balance',
-              bonus: 'Bonus',
               topUpBalance: 'Top-up balance',
               account: 'Account',
               connection: 'Connection',
@@ -831,7 +940,6 @@ window.__ModuleLoader__.load({
               hidden: '••••',
               unavailable: '--',
               lowBalance: 'Low balance',
-              details: 'Show details',
               refresh: 'Refresh',
               hideAmount: 'Hide amounts',
               showAmount: 'Show amounts',
