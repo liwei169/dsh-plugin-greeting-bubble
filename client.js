@@ -12,10 +12,14 @@
  * control. Registering a fresh `id` adds an entry beside the shipped ones
  * instead of replacing them.
  *
- * The bubble is draggable (pointer capture, viewport clamp, remembered in
- * localStorage) and shows the signed-in account's wallet balance, which it
- * reads through the Host's `account` Remote — the browser never sees the
- * account token and never calls Platform directly.
+ * Features:
+ * - draggable, viewport-clamped, position remembered in localStorage;
+ * - account balance from the Host `account` Remote (never the token itself),
+ *   refreshed every 60s while visible, with backoff and a manual refresh;
+ * - privacy mode hides amounts (remembered);
+ * - a low-balance warning below 3 CNY;
+ * - an expandable details panel with wallets, account, update time, version,
+ *   and links to the Platform usage/top-up pages.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-plugin-greeting-bubble',
@@ -26,12 +30,25 @@ window.__ModuleLoader__.load({
     /** Locale namespace owned by this plugin (registered in `apply`). */
     const NS = 'greetingBubble';
 
+    /** Keep in sync with package.json's version on every release. */
+    const PLUGIN_VERSION = '1.3.0';
+
     /** Where the reader last dropped the bubble, as viewport px. */
     const POSITION_KEY = 'dsh-greeting-bubble:position:v1';
 
-    /** Normal refresh cadence while the page is visible, and the failure cap. */
+    /** Whether amounts are hidden. */
+    const PRIVACY_KEY = 'dsh-greeting-bubble:privacy:v1';
+
+    /** Refresh cadence while visible, and the cap after repeated failures. */
     const BALANCE_REFRESH_MS = 60_000;
     const BALANCE_MAX_BACKOFF_MS = 300_000;
+
+    /** Below this CNY amount the bubble warns. */
+    const LOW_BALANCE_CNY = 3;
+
+    /** Platform pages linked from the details panel. */
+    const USAGE_URL = 'https://platform.deepseek.com/usage';
+    const TOP_UP_URL = 'https://platform.deepseek.com/top_up';
 
     /** Read the remembered spot; a corrupt or absent value means "default". */
     function readPosition() {
@@ -54,6 +71,24 @@ window.__ModuleLoader__.load({
         window.localStorage.setItem(POSITION_KEY, JSON.stringify(position));
       } catch {
         // Storage unavailable: position simply does not survive the reload.
+      }
+    }
+
+    /** Read the privacy preference. */
+    function readPrivacy() {
+      try {
+        return window.localStorage.getItem(PRIVACY_KEY) === '1';
+      } catch {
+        return false;
+      }
+    }
+
+    /** Persist the privacy preference. */
+    function writePrivacy(hidden) {
+      try {
+        window.localStorage.setItem(PRIVACY_KEY, hidden ? '1' : '0');
+      } catch {
+        // Storage unavailable: the toggle applies to this view only.
       }
     }
 
@@ -80,28 +115,37 @@ window.__ModuleLoader__.load({
       return Number.isFinite(amount) ? AMOUNT_FORMAT.format(amount) : value;
     }
 
-    /** True when a wallet amount is exactly zero (Platform sends decimal strings). */
-    function isZeroAmount(value) {
-      return Number(value) === 0;
+    /** Format a wallet list, e.g. "¥11.77 / $1.00"; null when empty. */
+    function formatWallets(wallets) {
+      if (!Array.isArray(wallets) || wallets.length === 0) return null;
+      return wallets
+        .filter((wallet) => wallet && typeof wallet.balance === 'string')
+        .map((wallet) => currencySymbol(wallet.currency) + formatAmount(wallet.balance))
+        .join(' / ') || null;
     }
 
-    /**
-     * Turn one `getBalance` result into the amount text for the second bubble
-     * line, or null when nothing sensible can be shown (signed out, failed, or
-     * empty wallets). The caller adds the localized "balance" label.
-     * @param balance - `AccountDetails['balance']` or null.
-     * @param bonusLabel - localized "bonus" word.
-     */
-    function formatBalance(balance, bonusLabel) {
+    /** Normalize the Remote balance result into displayable wallets. */
+    function normalizeBalance(balance) {
       if (!balance || balance.status !== 'ready' || !Array.isArray(balance.value)) return null;
-      const normal = balance.value
-        .filter((wallet) => wallet && typeof wallet.balance === 'string')
-        .map((wallet) => currencySymbol(wallet.currency) + formatAmount(wallet.balance));
+      const normal = balance.value.filter((wallet) => wallet && typeof wallet.balance === 'string');
       if (normal.length === 0) return null;
-      const bonus = (balance.bonusWallets ?? [])
-        .filter((wallet) => wallet && typeof wallet.balance === 'string' && !isZeroAmount(wallet.balance))
-        .map((wallet) => currencySymbol(wallet.currency) + formatAmount(wallet.balance));
-      return bonus.length === 0 ? normal.join(' / ') : normal.join(' / ') + '（' + bonusLabel + ' ' + bonus.join(' / ') + '）';
+      const bonus = (balance.bonusWallets ?? []).filter(
+        (wallet) => wallet && typeof wallet.balance === 'string' && Number(wallet.balance) !== 0,
+      );
+      return { normal, bonus };
+    }
+
+    /** True when any CNY wallet is below the warning threshold. */
+    function isLowBalance(normal) {
+      return (normal ?? []).some(
+        (wallet) => wallet.currency === 'CNY' && Number(wallet.balance) < LOW_BALANCE_CNY,
+      );
+    }
+
+    /** Local HH:MM:SS for the last successful refresh. */
+    function formatTime(timestamp) {
+      if (typeof timestamp !== 'number') return '--';
+      return new Date(timestamp).toLocaleTimeString();
     }
 
     /**
@@ -124,7 +168,7 @@ window.__ModuleLoader__.load({
   align-items: stretch;
   gap: 2px;
   box-sizing: border-box;
-  max-width: min(340px, calc(100vw - 40px));
+  max-width: min(380px, calc(100vw - 40px));
   padding: 8px 6px 8px 12px;
   border: 0;
   --dsw-elevation-stroke-color: var(--dsw-alias-border-l3);
@@ -158,31 +202,6 @@ window.__ModuleLoader__.load({
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.dsh-greeting-balance {
-  margin: 0;
-  padding: 0 0 0 24px;
-  border: 0;
-  border-radius: var(--dsw-radius-xs, 4px);
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary);
-  font: inherit;
-  font-size: 12px;
-  line-height: 16px;
-  text-align: left;
-  width: fit-content;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  cursor: pointer;
-  pointer-events: auto;
-}
-.dsh-greeting-balance:hover {
-  color: var(--dsw-alias-label-secondary);
-}
-.dsh-greeting-balance:focus-visible {
-  outline: var(--dsw-focus-ring-width, 2px) solid
-    var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
-  outline-offset: 1px;
-}
 .dsh-greeting-close {
   flex: none;
   display: inline-flex;
@@ -203,6 +222,94 @@ window.__ModuleLoader__.load({
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-secondary);
 }
+.dsh-greeting-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0 0 0 24px;
+  border: 0;
+  border-radius: var(--dsw-radius-xs, 4px);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: left;
+  width: fit-content;
+  max-width: 100%;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.dsh-greeting-toggle:hover {
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-greeting-toggle[data-low] {
+  color: var(--dsw-alias-state-warn-primary, #b26a00);
+}
+.dsh-greeting-chevron {
+  display: inline-block;
+  transition: transform 120ms ease;
+}
+.dsh-greeting-toggle[aria-expanded='true'] .dsh-greeting-chevron {
+  transform: rotate(90deg);
+}
+.dsh-greeting-warn {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #b26a00) 14%, transparent);
+  font-size: 11px;
+  line-height: 16px;
+}
+.dsh-greeting-details {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 4px;
+  padding: 6px 6px 2px 24px;
+  border-top: 0.5px solid var(--dsw-alias-border-l3);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 17px;
+  cursor: default;
+}
+.dsh-greeting-row {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.dsh-greeting-row-label {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+.dsh-greeting-row-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-greeting-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 3px;
+}
+.dsh-greeting-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-state-business-primary, #3b6fe0);
+  font: inherit;
+  font-size: 12px;
+  line-height: 17px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.dsh-greeting-action:hover {
+  text-decoration: underline;
+}
+.dsh-greeting-action:focus-visible,
+.dsh-greeting-toggle:focus-visible,
 .dsh-greeting-close:focus-visible {
   outline: var(--dsw-focus-ring-width, 2px) solid
     var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
@@ -228,24 +335,29 @@ window.__ModuleLoader__.load({
     /**
      * The greeting bubble itself.
      *
-     * @param props - the framework `t` seat plus the injected balance loader.
+     * @param props - the framework `t` seat plus injected balance/profile loaders.
      * @returns the bubble, or null once the reader dismissed it.
      */
-    function GreetingBubble({ t, loadBalance }) {
+    function GreetingBubble({ t, loadBalance, loadProfile }) {
       const [dismissed, setDismissed] = React.useState(false);
       const [position, setPosition] = React.useState(readPosition);
       const [dragging, setDragging] = React.useState(false);
-      const [walletText, setWalletText] = React.useState(null);
+      const [balance, setBalance] = React.useState(null);
+      const [profile, setProfile] = React.useState(null);
+      const [updatedAt, setUpdatedAt] = React.useState(null);
+      const [expanded, setExpanded] = React.useState(false);
+      const [privacy, setPrivacy] = React.useState(readPrivacy);
       const bubbleRef = React.useRef(null);
       const dragRef = React.useRef(null);
       const inFlightRef = React.useRef(null);
+      const profileRef = React.useRef(null);
       const timerRef = React.useRef(null);
       const backoffRef = React.useRef(BALANCE_REFRESH_MS);
       const cancelledRef = React.useRef(false);
 
       const label = (key, fallback) => (typeof t === 'function' ? t(key) : fallback);
 
-      /** Fetch once, deduplicating concurrent calls; resolves to wallet text or null. */
+      /** Fetch once, deduplicating concurrent calls. */
       function readBalance() {
         if (typeof loadBalance !== 'function') return Promise.resolve(null);
         if (inFlightRef.current !== null) return inFlightRef.current;
@@ -253,11 +365,30 @@ window.__ModuleLoader__.load({
           .then(() => loadBalance())
           .then((result) => {
             if (!result || result.ok !== true) return null;
-            return formatBalance(result.value, label('bonus', '赠送'));
+            const wallets = normalizeBalance(result.value);
+            return wallets === null ? null : { wallets, at: Date.now() };
           })
           .catch(() => null)
           .finally(() => { inFlightRef.current = null; });
         inFlightRef.current = run;
+        return run;
+      }
+
+      /** Profile is read on demand (first expand) and cached for the page view. */
+      function readProfile() {
+        if (profileRef.current !== null) return Promise.resolve(profileRef.current);
+        if (typeof loadProfile !== 'function') return Promise.resolve(null);
+        const run = Promise.resolve()
+          .then(() => loadProfile())
+          .then((result) => {
+            if (!result || result.ok !== true) return null;
+            const value = result.value;
+            if (!value || value.status !== 'ready' || !value.value) return null;
+            const next = { name: value.value.name, contact: value.value.contact };
+            profileRef.current = next;
+            return next;
+          })
+          .catch(() => null);
         return run;
       }
 
@@ -269,10 +400,13 @@ window.__ModuleLoader__.load({
           timerRef.current = window.setTimeout(tick, BALANCE_REFRESH_MS);
           return;
         }
-        void readBalance().then((text) => {
+        void readBalance().then((result) => {
           if (cancelledRef.current) return;
-          setWalletText(text);
-          backoffRef.current = text === null
+          if (result !== null) {
+            setBalance(result.wallets);
+            setUpdatedAt(result.at);
+          }
+          backoffRef.current = result === null
             ? Math.min(backoffRef.current * 2, BALANCE_MAX_BACKOFF_MS)
             : BALANCE_REFRESH_MS;
           timerRef.current = window.setTimeout(tick, backoffRef.current);
@@ -296,7 +430,7 @@ window.__ModuleLoader__.load({
           if (timerRef.current !== null) window.clearTimeout(timerRef.current);
           document.removeEventListener('visibilitychange', handleVisibility);
         };
-        // The loader is stable for the registration's lifetime.
+        // The loaders are stable for the registration's lifetime.
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, []);
 
@@ -316,23 +450,54 @@ window.__ModuleLoader__.load({
       }, []);
 
       if (dismissed) return null;
-      const text = label('greeting', '你好，腾盛');
+      const greeting = label('greeting', '你好，腾盛');
       const dismissLabel = label('dismiss', '关闭问候气泡');
-      const balanceLine = label('balance', '余额') + ' ' + (walletText ?? label('unavailable', '--'));
+      const normalText = balance === null ? null : formatWallets(balance.normal);
+      const bonusText = balance === null ? null : formatWallets(balance.bonus);
+      const low = balance !== null && isLowBalance(balance.normal);
+      const amountText = privacy
+        ? label('hidden', '••••')
+        : (normalText ?? label('unavailable', '--'));
+      const accountText = profile && (profile.name || profile.contact)
+        ? [profile.name, profile.contact].filter(Boolean).join(' · ')
+        : label('unavailable', '--');
 
-      /** Manual refresh: reset the backoff and read once. */
-      function handleBalanceClick(event) {
-        event.stopPropagation();
+      /** Refresh now and reset the backoff. */
+      function handleRefresh() {
         backoffRef.current = BALANCE_REFRESH_MS;
-        void readBalance().then((value) => {
-          if (!cancelledRef.current) setWalletText(value);
+        void readBalance().then((result) => {
+          if (cancelledRef.current || result === null) return;
+          setBalance(result.wallets);
+          setUpdatedAt(result.at);
+        });
+      }
+
+      /** Expand/collapse; the first expansion loads the account profile. */
+      function handleToggle() {
+        setExpanded((current) => {
+          const next = !current;
+          if (next && profile === null) {
+            void readProfile().then((value) => {
+              if (!cancelledRef.current && value !== null) setProfile(value);
+            });
+          }
+          return next;
+        });
+      }
+
+      /** Toggle the amount mask and remember it. */
+      function handlePrivacy() {
+        setPrivacy((current) => {
+          const next = !current;
+          writePrivacy(next);
+          return next;
         });
       }
 
       /** Start a drag: switch to absolute coordinates and capture the pointer. */
       function handlePointerDown(event) {
         if (event.button !== undefined && event.button !== 0) return;
-        if (event.target && event.target.closest && event.target.closest('button')) return;
+        if (event.target && event.target.closest && event.target.closest('button, a')) return;
         const element = bubbleRef.current;
         if (!element) return;
         const rect = element.getBoundingClientRect();
@@ -405,10 +570,7 @@ window.__ModuleLoader__.load({
             'div',
             { className: 'dsh-greeting-main', key: 'main' },
             h('span', { className: 'dsh-greeting-wave', 'aria-hidden': 'true' }, '👋'),
-            // `lang` pins the reading voice for this fixed Chinese phrase; the
-            // status role lives on the text so the controls stay outside the
-            // live region.
-            h('span', { className: 'dsh-greeting-text', role: 'status', lang: 'zh-CN' }, text),
+            h('span', { className: 'dsh-greeting-text', role: 'status', lang: 'zh-CN' }, greeting),
             h(
               'button',
               {
@@ -434,14 +596,66 @@ window.__ModuleLoader__.load({
           h(
             'button',
             {
-              key: 'balance',
-              className: 'dsh-greeting-balance',
+              key: 'toggle',
+              className: 'dsh-greeting-toggle',
               type: 'button',
-              title: label('refreshBalance', '刷新余额'),
-              onClick: handleBalanceClick,
+              'data-low': low ? '' : undefined,
+              'aria-expanded': expanded ? 'true' : 'false',
+              title: label('details', '展开详情'),
+              onClick: handleToggle,
             },
-            balanceLine,
+            h('span', { className: 'dsh-greeting-chevron', 'aria-hidden': 'true' }, '▸'),
+            h('span', null, label('balance', '余额') + ' ' + amountText),
+            low
+              ? h('span', { className: 'dsh-greeting-warn' }, label('lowBalance', '余额不足'))
+              : null,
           ),
+          expanded
+            ? h(
+              'div',
+              { className: 'dsh-greeting-details', key: 'details' },
+              h(
+                'div',
+                { className: 'dsh-greeting-row' },
+                h('span', { className: 'dsh-greeting-row-label' }, label('account', '账户')),
+                h('span', { className: 'dsh-greeting-row-value' }, accountText),
+              ),
+              h(
+                'div',
+                { className: 'dsh-greeting-row' },
+                h('span', { className: 'dsh-greeting-row-label' }, label('topUpBalance', '充值')),
+                h('span', { className: 'dsh-greeting-row-value' }, privacy ? label('hidden', '••••') : (normalText ?? label('unavailable', '--'))),
+              ),
+              h(
+                'div',
+                { className: 'dsh-greeting-row' },
+                h('span', { className: 'dsh-greeting-row-label' }, label('bonusBalance', '赠送')),
+                h('span', { className: 'dsh-greeting-row-value' }, privacy ? label('hidden', '••••') : (bonusText ?? label('unavailable', '--'))),
+              ),
+              h(
+                'div',
+                { className: 'dsh-greeting-row' },
+                h('span', { className: 'dsh-greeting-row-label' }, label('updated', '更新')),
+                h('span', { className: 'dsh-greeting-row-value' }, formatTime(updatedAt) + ' · v' + PLUGIN_VERSION),
+              ),
+              h(
+                'div',
+                { className: 'dsh-greeting-actions' },
+                h(
+                  'button',
+                  { className: 'dsh-greeting-action', type: 'button', onClick: handleRefresh },
+                  label('refresh', '刷新'),
+                ),
+                h(
+                  'button',
+                  { className: 'dsh-greeting-action', type: 'button', onClick: handlePrivacy },
+                  privacy ? label('showAmount', '显示金额') : label('hideAmount', '隐藏金额'),
+                ),
+                h('a', { className: 'dsh-greeting-action', href: USAGE_URL, target: '_blank', rel: 'noreferrer' }, label('usage', '用量')),
+                h('a', { className: 'dsh-greeting-action', href: TOP_UP_URL, target: '_blank', rel: 'noreferrer' }, label('topUp', '充值')),
+              ),
+            )
+            : null,
         ),
       );
     }
@@ -462,16 +676,38 @@ window.__ModuleLoader__.load({
               dismiss: '关闭问候气泡',
               balance: '余额',
               bonus: '赠送',
+              topUpBalance: '充值',
+              bonusBalance: '赠送',
+              account: '账户',
+              updated: '更新',
+              hidden: '••••',
               unavailable: '--',
-              refreshBalance: '刷新余额',
+              lowBalance: '余额不足',
+              details: '展开详情',
+              refresh: '刷新',
+              hideAmount: '隐藏金额',
+              showAmount: '显示金额',
+              usage: '用量',
+              topUp: '充值',
             },
             en: {
               greeting: '你好，腾盛',
               dismiss: 'Dismiss greeting',
               balance: 'Balance',
               bonus: 'Bonus',
+              topUpBalance: 'Top-up',
+              bonusBalance: 'Bonus',
+              account: 'Account',
+              updated: 'Updated',
+              hidden: '••••',
               unavailable: '--',
-              refreshBalance: 'Refresh balance',
+              lowBalance: 'Low balance',
+              details: 'Show details',
+              refresh: 'Refresh',
+              hideAmount: 'Hide amounts',
+              showAmount: 'Show amounts',
+              usage: 'Usage',
+              topUp: 'Top up',
             },
           }),
           'greeting-bubble: dictionaries',
@@ -490,19 +726,27 @@ window.__ModuleLoader__.load({
             timezoneOffsetSeconds: -new Date().getTimezoneOffset() * 60,
           };
         };
-        const loadBalance = () => {
+        const accountRemote = () => {
           const account = ctx.remote && ctx.remote.account;
-          if (!account || typeof account.getBalance !== 'function') {
-            throw new Error('account service unavailable');
-          }
+          if (!account) throw new Error('account service unavailable');
+          return account;
+        };
+        const loadBalance = () => {
+          const account = accountRemote();
+          if (typeof account.getBalance !== 'function') throw new Error('balance unavailable');
           return account.getBalance(metadata());
+        };
+        const loadProfile = () => {
+          const account = accountRemote();
+          if (typeof account.getProfile !== 'function') throw new Error('profile unavailable');
+          return account.getProfile(metadata());
         };
         ctx.slots.inject('shell.overlay', () => ctx.slots.register({
           name: 'shell.overlay',
           id: 'greeting-bubble',
           order: 50,
           locale: NS,
-          inject: () => ({ loadBalance }),
+          inject: () => ({ loadBalance, loadProfile }),
         }, GreetingBubble));
       },
     };

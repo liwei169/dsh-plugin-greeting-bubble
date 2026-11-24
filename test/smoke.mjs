@@ -88,6 +88,12 @@ const ctx = {
           },
         };
       },
+      async getProfile() {
+        return {
+          ok: true,
+          value: { status: 'ready', value: { name: '腾盛', contact: 't***@example.com' } },
+        };
+      },
     },
   },
 };
@@ -107,14 +113,19 @@ assert(dictionaries.value.zh.greeting === '你好，腾盛', 'zh greeting');
 assert(dictionaries.value.en.greeting === '你好，腾盛', 'en greeting is the same fixed phrase');
 assert(dictionaries.value.zh.dismiss && dictionaries.value.en.dismiss, 'dismiss labels');
 assert(dictionaries.value.zh.balance === '余额' && dictionaries.value.en.balance === 'Balance', 'balance label');
+assert(dictionaries.value.zh.lowBalance === '余额不足', 'low balance label');
+assert(dictionaries.value.zh.hideAmount && dictionaries.value.zh.showAmount, 'privacy labels');
 
 const face = registered.options.inject();
 assert(typeof face.loadBalance === 'function', 'balance loader is injected');
+assert(typeof face.loadProfile === 'function', 'profile loader is injected');
 const balance = await face.loadBalance();
 assert(balance.ok === true && balance.value.status === 'ready', 'balance resolves through the account Remote');
+const profile = await face.loadProfile();
+assert(profile.ok === true && profile.value.status === 'ready', 'profile resolves through the account Remote');
 
 const t = (key) => dictionaries.value.zh[key];
-const tree = registered.component({ t, loadBalance: face.loadBalance });
+const tree = registered.component({ t, loadBalance: face.loadBalance, loadProfile: face.loadProfile });
 const bubble = tree.children.find((child) => child && child.type === 'div' && child.props.className === 'dsh-greeting-bubble');
 assert(bubble, 'bubble element rendered');
 assert(bubble.props.role === undefined, 'the dismiss button stays outside the live region');
@@ -131,10 +142,14 @@ assert(text.props.lang === 'zh-CN', 'greeting text declares its language');
 const close = main.children.find((child) => child && child.type === 'button');
 assert(close && close.props['aria-label'] === '关闭问候气泡', 'close button label');
 
-const balanceButton = bubble.children.find((child) => child && child.type === 'button' && child.props.className === 'dsh-greeting-balance');
-assert(balanceButton, 'balance line rendered');
-assert(balanceButton.children[0] === '余额 --', 'balance placeholder before the first read');
-assert(typeof balanceButton.props.onClick === 'function', 'balance line refreshes on click');
+const toggle = bubble.children.find((child) => child && child.type === 'button' && child.props.className === 'dsh-greeting-toggle');
+assert(toggle, 'balance toggle rendered');
+assert(toggle.props['aria-expanded'] === 'false', 'details start collapsed');
+assert(typeof toggle.props.onClick === 'function', 'toggle expands details');
+const toggleText = toggle.children.find((child) => child && child.type === 'span' && typeof child.children[0] === 'string' && child.children[0].startsWith('余额'));
+assert(toggleText && toggleText.children[0] === '余额 --', 'balance placeholder before the first read');
+const details = bubble.children.find((child) => child && child.props && child.props.className === 'dsh-greeting-details');
+assert(details === undefined, 'details are hidden while collapsed');
 
 console.log('ok: module id, plugin shape, registration options, dictionaries, account Remote, and a render pass');
 console.log('effects: ' + effectLabels.join(' | '));
