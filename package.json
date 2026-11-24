@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-greeting-bubble",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Shows a “你好，腾盛” speech bubble in the bottom-right corner of the DeepSeek Harness Web GUI.",
   "license": "MIT",
   "publishConfig": {

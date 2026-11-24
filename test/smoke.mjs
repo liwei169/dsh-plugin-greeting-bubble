@@ -119,7 +119,7 @@ assert(dictionaries.value.zh.dismiss && dictionaries.value.en.dismiss, 'dismiss 
 assert(dictionaries.value.zh.balance === '余额' && dictionaries.value.en.balance === 'Balance', 'balance label');
 assert(dictionaries.value.zh.lowBalance === '余额不足', 'low balance label');
 assert(dictionaries.value.zh.hideAmount && dictionaries.value.zh.showAmount, 'privacy labels');
-assert(dictionaries.value.zh.connection && dictionaries.value.zh.today === '今日使用', 'connection and usage labels');
+assert(dictionaries.value.zh.connection && dictionaries.value.zh.today === '今日消费金额', 'connection and usage labels');
 
 const face = registered.options.inject();
 assert(typeof face.loadBalance === 'function', 'balance loader is injected');
