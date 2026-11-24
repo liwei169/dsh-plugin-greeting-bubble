@@ -367,6 +367,11 @@ window.__ModuleLoader__.load({
   overflow-wrap: anywhere;
   color: var(--dsw-alias-label-secondary);
 }
+.dsh-greeting-row-value[data-nowrap] {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .dsh-greeting-actions {
   display: flex;
   flex-wrap: wrap;
@@ -552,9 +557,7 @@ window.__ModuleLoader__.load({
             : label('unavailable', '--');
       const spentText = spent === null
         ? label('unavailable', '--')
-        : '≈ ' + currencySymbol('CNY') + formatAmount(spent.spent) + ' '
-          + label('estimate', '（估算）')
-          + (typeof spent.startAt === 'number' ? ' · ' + label('baseline', '基准') + ' ' + formatTime(spent.startAt) : '');
+        : '≈ ' + currencySymbol('CNY') + formatAmount(spent.spent);
 
       /** Refresh now and reset the backoff. */
       function handleRefresh() {
@@ -737,7 +740,7 @@ window.__ModuleLoader__.load({
                 'div',
                 { className: 'dsh-greeting-row' },
                 h('span', { className: 'dsh-greeting-row-label' }, label('today', '今日消费金额')),
-                h('span', { className: 'dsh-greeting-row-value' }, spentText),
+                h('span', { className: 'dsh-greeting-row-value', 'data-nowrap': '' }, spentText),
               ),
               h(
                 'div',
@@ -797,8 +800,6 @@ window.__ModuleLoader__.load({
               reconnect: '重连',
               updated: '更新',
               today: '今日消费金额',
-              estimate: '（估算）',
-              baseline: '基准',
               hidden: '••••',
               unavailable: '--',
               lowBalance: '余额不足',
@@ -827,8 +828,6 @@ window.__ModuleLoader__.load({
               reconnect: 'Reconnect',
               updated: 'Updated',
               today: "Today's spend",
-              estimate: '(estimate)',
-              baseline: 'baseline',
               hidden: '••••',
               unavailable: '--',
               lowBalance: 'Low balance',
