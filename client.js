@@ -38,7 +38,7 @@ window.__ModuleLoader__.load({
     const BALANCE_MAX_BACKOFF_MS = 300_000;
 
     /** Below this CNY amount the widget warns. */
-    const LOW_BALANCE_CNY = 3;
+    const LOW_BALANCE_CNY = 8;
 
     /** Local-day consumption baseline; reset when the date changes. */
     const CONSUMPTION_KEY = 'dsh-greeting-bubble:consumption:v1';
@@ -510,6 +510,7 @@ window.__ModuleLoader__.load({
       const [refreshing, setRefreshing] = React.useState(false);
       const widgetRef = React.useRef(null);
       const dragRef = React.useRef(null);
+      const bottomAnchorRef = React.useRef(null);
       const suppressClickRef = React.useRef(false);
       const inFlightRef = React.useRef(null);
       const profileRef = React.useRef(null);
@@ -618,6 +619,23 @@ window.__ModuleLoader__.load({
         return () => { window.removeEventListener('resize', handleResize); };
       }, []);
 
+      // Keep the widget's bottom edge fixed while expanding: a widget anchored
+      // near the bottom edge then grows upward instead of running off-screen.
+      React.useEffect(() => {
+        const element = widgetRef.current;
+        const bottom = bottomAnchorRef.current;
+        if (!element || bottom === null) return;
+        bottomAnchorRef.current = null;
+        const rect = element.getBoundingClientRect();
+        const margin = 8;
+        const maxTop = Math.max(margin, window.innerHeight - rect.height - margin);
+        const top = Math.round(clamp(bottom - rect.height, margin, maxTop));
+        const left = Math.round(clamp(rect.left, margin, Math.max(margin, window.innerWidth - rect.width - margin)));
+        if (Math.abs(top - rect.top) > 0.5 || Math.abs(left - rect.left) > 0.5) {
+          setPosition({ x: left, y: top });
+        }
+      }, [expanded]);
+
       if (dismissed) return null;
       const greeting = label(greetingKeyForHour(new Date().getHours()), '你好，腾盛');
       const dismissLabel = label('dismiss', '关闭问候气泡');
@@ -652,6 +670,8 @@ window.__ModuleLoader__.load({
 
       /** Expand/collapse; the first expansion loads the account profile. */
       function toggleExpanded() {
+        const element = widgetRef.current;
+        if (element) bottomAnchorRef.current = element.getBoundingClientRect().bottom;
         setExpanded((current) => {
           const next = !current;
           if (next && profile === null) {
