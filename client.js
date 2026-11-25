@@ -27,8 +27,8 @@ window.__ModuleLoader__.load({
     /** Locale namespace owned by this plugin (registered in `apply`). */
     const NS = 'greetingBubble';
 
-    /** Where the reader last dropped the widget, as viewport px. */
-    const POSITION_KEY = 'dsh-greeting-bubble:position:v2';
+    /** Where the reader last dropped the widget, as offsets from the bottom-right corner. */
+    const POSITION_KEY = 'dsh-greeting-bubble:position:v3';
 
     /** Whether amounts are hidden. */
     const PRIVACY_KEY = 'dsh-greeting-bubble:privacy:v1';
@@ -56,8 +56,8 @@ window.__ModuleLoader__.load({
         const raw = window.localStorage.getItem(POSITION_KEY);
         if (!raw) return null;
         const value = JSON.parse(raw);
-        if (typeof value?.x === 'number' && typeof value?.y === 'number') {
-          return { x: value.x, y: value.y };
+        if (typeof value?.right === 'number' && typeof value?.bottom === 'number') {
+          return { right: value.right, bottom: value.bottom };
         }
       } catch {
         // Private mode, blocked storage, or malformed JSON: fall through.
@@ -510,7 +510,6 @@ window.__ModuleLoader__.load({
       const [refreshing, setRefreshing] = React.useState(false);
       const widgetRef = React.useRef(null);
       const dragRef = React.useRef(null);
-      const bottomAnchorRef = React.useRef(null);
       const suppressClickRef = React.useRef(false);
       const inFlightRef = React.useRef(null);
       const profileRef = React.useRef(null);
@@ -604,35 +603,34 @@ window.__ModuleLoader__.load({
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, []);
 
-      // Keep a remembered spot on screen when the window shrinks.
+      // Keep the remembered offsets valid when the window shrinks.
       React.useEffect(() => {
         function handleResize() {
           setPosition((current) => {
             const element = widgetRef.current;
             if (current === null || element === null) return current;
-            const x = clamp(current.x, 0, window.innerWidth - element.offsetWidth);
-            const y = clamp(current.y, 0, window.innerHeight - element.offsetHeight);
-            return x === current.x && y === current.y ? current : { x, y };
+            const right = clamp(current.right, 0, Math.max(0, window.innerWidth - element.offsetWidth));
+            const bottom = clamp(current.bottom, 0, Math.max(0, window.innerHeight - element.offsetHeight));
+            return right === current.right && bottom === current.bottom ? current : { right, bottom };
           });
         }
         window.addEventListener('resize', handleResize);
         return () => { window.removeEventListener('resize', handleResize); };
       }, []);
 
-      // Keep the widget's bottom edge fixed while expanding: a widget anchored
-      // near the bottom edge then grows upward instead of running off-screen.
+      // Bottom-anchored: expansion grows upward. Only nudge down when the card
+      // is taller than the room above it.
       React.useEffect(() => {
+        if (!expanded) return;
         const element = widgetRef.current;
-        const bottom = bottomAnchorRef.current;
-        if (!element || bottom === null) return;
-        bottomAnchorRef.current = null;
+        if (!element) return;
         const rect = element.getBoundingClientRect();
         const margin = 8;
-        const maxTop = Math.max(margin, window.innerHeight - rect.height - margin);
-        const top = Math.round(clamp(bottom - rect.height, margin, maxTop));
-        const left = Math.round(clamp(rect.left, margin, Math.max(margin, window.innerWidth - rect.width - margin)));
-        if (Math.abs(top - rect.top) > 0.5 || Math.abs(left - rect.left) > 0.5) {
-          setPosition({ x: left, y: top });
+        if (rect.top < margin) {
+          setPosition((current) => current === null ? current : {
+            right: current.right,
+            bottom: Math.max(0, window.innerHeight - rect.height - margin),
+          });
         }
       }, [expanded]);
 
@@ -670,8 +668,6 @@ window.__ModuleLoader__.load({
 
       /** Expand/collapse; the first expansion loads the account profile. */
       function toggleExpanded() {
-        const element = widgetRef.current;
-        if (element) bottomAnchorRef.current = element.getBoundingClientRect().bottom;
         setExpanded((current) => {
           const next = !current;
           if (next && profile === null) {
@@ -703,13 +699,13 @@ window.__ModuleLoader__.load({
           pointerId: event.pointerId,
           startX: event.clientX,
           startY: event.clientY,
-          left: rect.left,
-          top: rect.top,
+          startRight: window.innerWidth - rect.right,
+          startBottom: window.innerHeight - rect.bottom,
           width: rect.width,
           height: rect.height,
           moved: false,
         };
-        setPosition({ x: rect.left, y: rect.top });
+        setPosition({ right: dragRef.current.startRight, bottom: dragRef.current.startBottom });
         setDragging(true);
         if (typeof element.setPointerCapture === 'function') {
           element.setPointerCapture(event.pointerId);
@@ -725,8 +721,8 @@ window.__ModuleLoader__.load({
         const dy = event.clientY - drag.startY;
         if (!drag.moved && Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD) drag.moved = true;
         setPosition({
-          x: clamp(drag.left + dx, 0, window.innerWidth - drag.width),
-          y: clamp(drag.top + dy, 0, window.innerHeight - drag.height),
+          right: clamp(drag.startRight - dx, 0, Math.max(0, window.innerWidth - drag.width)),
+          bottom: clamp(drag.startBottom - dy, 0, Math.max(0, window.innerHeight - drag.height)),
         });
       }
 
@@ -740,8 +736,8 @@ window.__ModuleLoader__.load({
         if (!element) return;
         const rect = element.getBoundingClientRect();
         const dropped = {
-          x: Math.round(clamp(rect.left, 0, window.innerWidth - rect.width)),
-          y: Math.round(clamp(rect.top, 0, window.innerHeight - rect.height)),
+          right: Math.round(clamp(window.innerWidth - rect.right, 0, Math.max(0, window.innerWidth - rect.width))),
+          bottom: Math.round(clamp(window.innerHeight - rect.bottom, 0, Math.max(0, window.innerHeight - rect.height))),
         };
         setPosition(dropped);
         writePosition(dropped);
@@ -777,7 +773,7 @@ window.__ModuleLoader__.load({
           'data-disconnected': connectionState === 'disconnected' ? '' : undefined,
           style: position === null
             ? undefined
-            : { left: position.x, top: position.y, right: 'auto', bottom: 'auto' },
+            : { right: position.right, bottom: position.bottom, left: 'auto', top: 'auto' },
           onPointerDown: beginDrag,
           onPointerMove: moveDrag,
           onPointerUp: endDrag,
