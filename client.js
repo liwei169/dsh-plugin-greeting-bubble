@@ -104,15 +104,23 @@ window.__ModuleLoader__.load({
       return currency + ' ';
     }
 
-    /** Display a Platform decimal string with two fraction digits. */
-    const AMOUNT_FORMAT = new Intl.NumberFormat(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
+    /** Whole-yuan grouping for truncated amounts. */
+    const WHOLE_FORMAT = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 
+    /**
+     * Display a Platform amount the way the Platform does: truncate to two
+     * fraction digits instead of rounding, so 4.618 shows 4.61 (not 4.62).
+     */
     function formatAmount(value) {
       const amount = Number(value);
-      return Number.isFinite(amount) ? AMOUNT_FORMAT.format(amount) : value;
+      if (!Number.isFinite(amount)) return value;
+      // Round away binary noise at the 1e-9 scale, then truncate to cents.
+      const cents = Math.trunc(Math.round(amount * 1e9) / 1e7);
+      const sign = cents < 0 ? '-' : '';
+      const abs = Math.abs(cents);
+      const whole = WHOLE_FORMAT.format(Math.floor(abs / 100));
+      const fraction = String(abs % 100).padStart(2, '0');
+      return sign + whole + '.' + fraction;
     }
 
     /** Format a wallet list, e.g. "¥11.77 / $1.00"; null when empty. */
